@@ -6,8 +6,9 @@ class FormaEnvioBase(BaseModel):
     id_forma: Optional[str]
     descricao: Optional[str]
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 class FormaEnvio(FormaEnvioBase):
     id: int

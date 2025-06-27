@@ -47,8 +47,9 @@ class NotaFiscalBase(BaseModel):
     observacoes: Optional[str]
     id_cliente: Optional[int]
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 class NotaFiscal(NotaFiscalBase):
     id: int

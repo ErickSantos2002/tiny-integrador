@@ -1,12 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
-from app.api.endpoints.nota_fiscal import router as nota_fiscal_router
-from app.api.endpoints.cliente import router as cliente_router
-from app.api.endpoints.item_nota import router as item_nota_router
-from app.api.endpoints.endereco_entrega import router as endereco_entrega_router
-from app.api.endpoints.forma_envio import router as forma_envio_router
-from app.api.endpoints.marcador import router as marcador_router
+from app.api import endpoints
 
 app = FastAPI(
     title="Tiny Integrador API",
@@ -22,8 +16,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-from app.api import endpoints
 
 # Registrar endpoints
 app.include_router(endpoints.nota_fiscal, prefix="/notas", tags=["Notas Fiscais"])

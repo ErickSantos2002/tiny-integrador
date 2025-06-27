@@ -16,8 +16,9 @@ class EnderecoEntregaBase(BaseModel):
     fone: Optional[str]
     id_nota: Optional[int]
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 class EnderecoEntrega(EnderecoEntregaBase):
     id: int

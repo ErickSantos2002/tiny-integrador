@@ -7,8 +7,9 @@ class MarcadorBase(BaseModel):
     descricao: Optional[str]
     cor: Optional[str]
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 class Marcador(MarcadorBase):
     id: int

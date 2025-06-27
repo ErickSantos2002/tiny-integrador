@@ -16,8 +16,9 @@ class ClienteBase(BaseModel):
     fone: Optional[str]
     email: Optional[str]
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 class Cliente(ClienteBase):
     id: int

@@ -15,8 +15,9 @@ class ItemNotaBase(BaseModel):
     cfop: Optional[str]
     natureza: Optional[str]
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 class ItemNota(ItemNotaBase):
     id: int
