@@ -4,6 +4,7 @@ from app.models.database import Base
 
 class FormaEnvio(Base):
     __tablename__ = "formas_envio"
+    __table_args__ = {"schema": "tiny"}
 
     id = Column(Integer, primary_key=True, index=True)
     id_nota = Column(Integer, ForeignKey("notas_fiscais.id"), nullable=True)

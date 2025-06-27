@@ -4,6 +4,7 @@ from app.models.database import Base
 
 class Cliente(Base):
     __tablename__ = "clientes"
+    __table_args__ = {"schema": "tiny"}
 
     id = Column(Integer, primary_key=True, index=True)
     cpf_cnpj = Column(String(20), nullable=False, unique=True)

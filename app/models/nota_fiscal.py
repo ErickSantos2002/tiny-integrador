@@ -6,6 +6,7 @@ from app.models.database import Base
 
 class NotaFiscal(Base):
     __tablename__ = "notas_fiscais"
+    __table_args__ = {"schema": "tiny"}
 
     id = Column(Integer, primary_key=True, index=True)
     id_tiny = Column(String(20), unique=True, nullable=True)
