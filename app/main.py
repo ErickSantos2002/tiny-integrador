@@ -18,12 +18,12 @@ app.add_middleware(
 )
 
 # Registrar endpoints
-app.include_router(endpoints.nota_fiscal, prefix="/notas", tags=["Notas Fiscais"])
-app.include_router(endpoints.cliente, prefix="/clientes", tags=["Clientes"])
-app.include_router(endpoints.item_nota, prefix="/itens", tags=["Itens da Nota"])
-app.include_router(endpoints.endereco_entrega, prefix="/enderecos", tags=["Endereços de Entrega"])
-app.include_router(endpoints.forma_envio, prefix="/formas", tags=["Formas de Envio"])
-app.include_router(endpoints.marcador, prefix="/marcadores", tags=["Marcadores"])
+app.include_router(endpoints.nota_fiscal)
+app.include_router(endpoints.cliente)
+app.include_router(endpoints.item_nota)
+app.include_router(endpoints.endereco_entrega)
+app.include_router(endpoints.forma_envio)
+app.include_router(endpoints.marcador)
 
 # Health check
 @app.get("/")
