@@ -51,7 +51,7 @@ class NotaFiscal(Base):
     observacoes = Column(Text, nullable=True)
 
     id_cliente = Column(Integer, ForeignKey("tiny.clientes.id"), nullable=True)
-    cliente = relationship("ClienteModel", back_populates="notas_fiscais")
+    cliente = relationship("Cliente", back_populates="notas_fiscais")
 
     # Relacionamentos com outras tabelas
     enderecos_entrega = relationship("EnderecoEntrega", back_populates="nota_fiscal", uselist=False)
