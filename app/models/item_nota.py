@@ -7,7 +7,7 @@ class ItemNota(Base):
     __table_args__ = {"schema": "tiny"}
 
     id = Column(Integer, primary_key=True, index=True)
-    id_nota = Column(Integer, ForeignKey("notas_fiscais.id"), nullable=True)
+    id_nota = Column(Integer, ForeignKey("tiny.notas_fiscais.id"), nullable=True)
     id_produto = Column(String(20), nullable=True)
     codigo = Column(String(20), nullable=True)
     descricao = Column(Text, nullable=True)

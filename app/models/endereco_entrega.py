@@ -20,7 +20,7 @@ class EnderecoEntrega(Base):
     uf = Column(CHAR(2), nullable=True)
     fone = Column(String(20), nullable=True)
 
-    id_nota = Column(Integer, ForeignKey("notas_fiscais.id"), nullable=True)
+    id_nota = Column(Integer, ForeignKey("tiny.notas_fiscais.id"), nullable=True)
 
     # Relacionamento (opcional se for acessar nota diretamente)
     nota_fiscal = relationship("NotaFiscal", back_populates="enderecos_entrega")

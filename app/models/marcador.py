@@ -7,7 +7,7 @@ class Marcador(Base):
     __table_args__ = {"schema": "tiny"}
 
     id = Column(Integer, primary_key=True, index=True)
-    id_nota = Column(Integer, ForeignKey("notas_fiscais.id"), nullable=True)
+    id_nota = Column(Integer, ForeignKey("tiny.notas_fiscais.id"), nullable=True)
     id_marcador = Column(String(20), nullable=True)
     descricao = Column(Text, nullable=True)
     cor = Column(String(10), nullable=True)
