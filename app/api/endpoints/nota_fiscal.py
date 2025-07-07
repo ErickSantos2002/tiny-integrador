@@ -20,6 +20,8 @@ def get_db():
 def listar_notas_fiscais(
     id_cliente: Optional[int] = Query(None),
     data_emissao: Optional[str] = Query(None),
+    data_inicio: Optional[str] = Query(None),
+    data_fim: Optional[str] = Query(None),
     natureza_operacao: Optional[List[str]] = Query(None),
     descricao_situacao: Optional[str] = Query(None),
     db: Session = Depends(get_db)
@@ -35,11 +37,16 @@ def listar_notas_fiscais(
     if id_cliente:
         query = query.filter(NotaFiscalModel.id_cliente == id_cliente)
 
-    if data_emissao:
+    if data_inicio and data_fim:
+        query = query.filter(NotaFiscalModel.data_emissao.between(data_inicio, data_fim))
+    elif data_inicio:
+        query = query.filter(NotaFiscalModel.data_emissao >= data_inicio)
+    elif data_fim:
+        query = query.filter(NotaFiscalModel.data_emissao <= data_fim)
+    elif data_emissao:
         query = query.filter(NotaFiscalModel.data_emissao == data_emissao)
 
     if natureza_operacao:
-        # Aplica filtro com ILIKE para cada parte da lista
         filtros = [
             NotaFiscalModel.natureza_operacao.ilike(f"%{valor}%")
             for valor in natureza_operacao
