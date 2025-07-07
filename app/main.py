@@ -11,8 +11,8 @@ app = FastAPI(
 # CORS (se acessar por frontend externo)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ajuste em produção
-    allow_credentials=False,
+    allow_origins=["https://datacorehs.healthsafetytech.com"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
