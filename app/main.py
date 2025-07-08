@@ -9,13 +9,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Força HTTPS para evitar redirects 307
-app.add_middleware(HTTPSRedirectMiddleware)
-
 # CORS (se acessar por frontend externo)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://datacorehs.healthsafetytech.com"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
