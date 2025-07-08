@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  traefik:
+    image: traefik:v2.11
+    container_name: traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge=true"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.myresolver.acme.email=seu@email.com"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./traefik/traefik.yml:/traefik.yml:ro"
+      - "./traefik/acme.json:/letsencrypt/acme.json"
+    networks:
+      - web
+
+  app:
+    build: .
+    container_name: fastapi_app
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tinyapi.rule=Host(`tinyapi.healthsafetytech.com`)"
+      - "traefik.http.routers.tinyapi.entrypoints=websecure"
+      - "traefik.http.routers.tinyapi.tls.certresolver=myresolver"
+    expose:
+      - "8000"
+    networks:
+      - web
+
+networks:
+  web:
+    external: false
