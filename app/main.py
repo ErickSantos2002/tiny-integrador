@@ -23,6 +23,7 @@ app.add_middleware(
 
 # Registrar endpoints
 app.include_router(endpoints.nota_fiscal)
+app.include_router(endpoints.nota_servico)  # <-- novo endpoint
 app.include_router(endpoints.cliente)
 app.include_router(endpoints.item_nota)
 app.include_router(endpoints.endereco_entrega)

@@ -1,4 +1,5 @@
 from .nota_fiscal import router as nota_fiscal
+from .nota_servico import router as nota_servico
 from .cliente import router as cliente
 from .item_nota import router as item_nota
 from .endereco_entrega import router as endereco_entrega
