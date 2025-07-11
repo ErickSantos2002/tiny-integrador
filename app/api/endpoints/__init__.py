@@ -5,3 +5,4 @@ from .item_nota import router as item_nota
 from .endereco_entrega import router as endereco_entrega
 from .forma_envio import router as forma_envio
 from .marcador import router as marcador
+from .configuracoes import router as configuracoes
