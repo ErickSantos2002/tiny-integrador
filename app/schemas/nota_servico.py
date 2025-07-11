@@ -1,13 +1,14 @@
 from pydantic import BaseModel
 from typing import Optional
 from decimal import Decimal
+from datetime import date
 
 class NotaServicoBase(BaseModel):
     tipo_de_registro: Optional[str]
     numero_nfse: Optional[int]
     status_nfse: Optional[Decimal]
     codigo_verificacao: Optional[str]
-    data_emissao: Optional[str]
+    data_emissao: Optional[date]
     tipo_rps: Optional[Decimal]
     serie_rps: Optional[Decimal]
     numero_rps: Optional[Decimal]
