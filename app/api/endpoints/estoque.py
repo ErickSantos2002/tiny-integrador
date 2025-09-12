@@ -6,7 +6,7 @@ from app.models import estoque as models
 from app.schemas import estoque as schemas
 from app.models.database import SessionLocal
 
-router = APIRouter()
+router = APIRouter(prefix="/estoque", tags=["Estoque"])
 
 # Dependency
 def get_db():
