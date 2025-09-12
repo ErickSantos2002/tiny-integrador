@@ -4,6 +4,7 @@ from sqlalchemy import or_
 from typing import List, Optional
 from app.models.database import SessionLocal
 from app.models.nota_fiscal import NotaFiscal as NotaFiscalModel
+from app.models.marcador import Marcador
 from app.schemas.nota_fiscal import NotaFiscal
 
 router = APIRouter(prefix="/notas_fiscais", tags=["Notas Fiscais"])
@@ -89,7 +90,7 @@ def listar_vendas(
     # 🔹 Excluir notas com marcadores problemáticos
     query = query.filter(
         ~NotaFiscalModel.marcadores.any(
-            MarcadorModel.descricao.in_([
+            Marcador.descricao.in_([
                 "cancelar",
                 "cliente não quis o produto",
                 "nf devolvida",
