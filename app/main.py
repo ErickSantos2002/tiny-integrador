@@ -30,6 +30,7 @@ app.include_router(endpoints.endereco_entrega)
 app.include_router(endpoints.forma_envio)
 app.include_router(endpoints.marcador)
 app.include_router(endpoints.configuracoes)
+app.include_router(endpoints.estoque)
 
 # Health check
 @app.get("/")
