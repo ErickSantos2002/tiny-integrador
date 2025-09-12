@@ -4,9 +4,17 @@ from typing import List
 
 from app.models import estoque as models
 from app.schemas import estoque as schemas
-from app.models.database import get_db
+from app.models.database import SessionLocal
 
 router = APIRouter()
+
+# Dependency
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 @router.get("/", response_model=List[schemas.Estoque])
 def listar_estoque(db: Session = Depends(get_db)):
