@@ -4,7 +4,6 @@ from sqlalchemy import or_
 from typing import List, Optional
 from app.models.database import SessionLocal
 from app.models.nota_fiscal import NotaFiscal as NotaFiscalModel
-from app.models.marcador import MarcadorModel
 from app.schemas.nota_fiscal import NotaFiscal
 
 router = APIRouter(prefix="/notas_fiscais", tags=["Notas Fiscais"])
