@@ -46,6 +46,7 @@ class NotaFiscalBase(BaseModel):
     chave_acesso: Optional[str]
     observacoes: Optional[str]
     id_cliente: Optional[int]
+    tipo: Optional[str]
 
     model_config = {
         "from_attributes": True
@@ -60,3 +61,6 @@ class NotaFiscal(NotaFiscalBase):
     formas_envio: Optional[List[FormaEnvio]]
     marcadores: Optional[List[Marcador]]
     itens: Optional[List[ItemNota]]
+
+class NotaFiscalUpdateTipo(BaseModel):
+    tipo: str

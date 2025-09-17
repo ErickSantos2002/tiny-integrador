@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
 from typing import List, Optional
@@ -6,6 +6,7 @@ from app.models.database import SessionLocal
 from app.models.nota_fiscal import NotaFiscal as NotaFiscalModel
 from app.models.marcador import Marcador
 from app.schemas.nota_fiscal import NotaFiscal
+from app.schemas.nota_fiscal import NotaFiscalUpdateTipo
 
 router = APIRouter(prefix="/notas_fiscais", tags=["Notas Fiscais"])
 
@@ -25,6 +26,7 @@ def listar_notas_fiscais(
     data_fim: Optional[str] = Query(None),
     natureza_operacao: Optional[List[str]] = Query(None),
     descricao_situacao: Optional[str] = Query(None),
+    tipo: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     query = db.query(NotaFiscalModel).options(
@@ -56,6 +58,9 @@ def listar_notas_fiscais(
 
     if descricao_situacao:
         query = query.filter(NotaFiscalModel.descricao_situacao == descricao_situacao)
+
+    if tipo:   # <-- Filtro do novo campo
+        query = query.filter(NotaFiscalModel.tipo == tipo)
 
     return query.all()
 
@@ -116,3 +121,22 @@ def listar_vendas(
         query = query.filter(NotaFiscalModel.data_emissao == data_emissao)
 
     return query.all()
+
+@router.patch("/{nota_id}/tipo", response_model=NotaFiscal)
+def atualizar_tipo_nota(
+    nota_id: int = Path(..., description="ID da nota fiscal"),
+    payload: NotaFiscalUpdateTipo = None,
+    db: Session = Depends(get_db)
+):
+    # 🔎 Busca a nota fiscal pelo ID
+    nota = db.query(NotaFiscalModel).filter(NotaFiscalModel.id == nota_id).first()
+    if not nota:
+        raise HTTPException(status_code=404, detail="Nota fiscal não encontrada")
+
+    # ✏️ Atualiza apenas o campo tipo
+    nota.tipo = payload.tipo
+    db.add(nota)
+    db.commit()
+    db.refresh(nota)
+
+    return nota

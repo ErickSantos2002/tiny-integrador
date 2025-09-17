@@ -49,6 +49,7 @@ class NotaFiscal(Base):
     descricao_situacao = Column(Text, nullable=True)
     chave_acesso = Column(String(60), nullable=True)
     observacoes = Column(Text, nullable=True)
+    tipo = Column(String(20), nullable=True)
 
     id_cliente = Column(Integer, ForeignKey("tiny.clientes.id"), nullable=True)
     cliente = relationship("Cliente", back_populates="notas_fiscais")
