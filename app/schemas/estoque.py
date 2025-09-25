@@ -26,8 +26,9 @@ class EstoqueUpdate(EstoqueBase):
 class EstoqueInDBBase(EstoqueBase):
     id: int
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 class Estoque(EstoqueInDBBase):
     pass
