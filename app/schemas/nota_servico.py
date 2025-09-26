@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional
 from decimal import Decimal
 from datetime import date
@@ -52,6 +52,14 @@ class NotaServicoBase(BaseModel):
     model_config = {
         "from_attributes": True
     }
+
+    # 🔑 Validador: substitui NaN → None em todos os campos numéricos
+    @field_validator("*", mode="before")
+    def replace_nan(cls, v):
+        if isinstance(v, Decimal) and v.is_nan():
+            return None
+        return v
+
 
 class NotaServico(NotaServicoBase):
     id: int
