@@ -228,18 +228,22 @@ class NFSeRecifeService:
         servico = inf_nfse.find('nfse:Servico', ns)
         valores = servico.find('nfse:Valores', ns) if servico is not None else None
 
-        valor_servicos = get_text(valores, 'nfse:ValorServicos') if valores is not None else None
+        # Helper para converter ponto em vírgula nos valores
+        def format_valor(valor):
+            return valor.replace('.', ',') if valor else None
+
+        valor_servicos = format_valor(get_text(valores, 'nfse:ValorServicos')) if valores is not None else None
         iss_retido = get_text(valores, 'nfse:IssRetido') if valores is not None else None
-        valor_iss = get_text(valores, 'nfse:ValorIss') if valores is not None else None
-        base_calculo = get_text(valores, 'nfse:BaseCalculo') if valores is not None else None
-        aliquota = get_text(valores, 'nfse:Aliquota') if valores is not None else None
-        valor_liquido = get_text(valores, 'nfse:ValorLiquidoNfse') if valores is not None else None
-        valor_deducoes = get_text(valores, 'nfse:ValorDeducoes') if valores is not None else None
-        valor_pis = get_text(valores, 'nfse:ValorPis') if valores is not None else None
-        valor_cofins = get_text(valores, 'nfse:ValorCofins') if valores is not None else None
-        valor_inss = get_text(valores, 'nfse:ValorInss') if valores is not None else None
-        valor_ir = get_text(valores, 'nfse:ValorIr') if valores is not None else None
-        valor_csll = get_text(valores, 'nfse:ValorCsll') if valores is not None else None
+        valor_iss = format_valor(get_text(valores, 'nfse:ValorIss')) if valores is not None else None
+        base_calculo = format_valor(get_text(valores, 'nfse:BaseCalculo')) if valores is not None else None
+        aliquota = format_valor(get_text(valores, 'nfse:Aliquota')) if valores is not None else None
+        valor_liquido = format_valor(get_text(valores, 'nfse:ValorLiquidoNfse')) if valores is not None else None
+        valor_deducoes = format_valor(get_text(valores, 'nfse:ValorDeducoes')) if valores is not None else None
+        valor_pis = format_valor(get_text(valores, 'nfse:ValorPis')) if valores is not None else None
+        valor_cofins = format_valor(get_text(valores, 'nfse:ValorCofins')) if valores is not None else None
+        valor_inss = format_valor(get_text(valores, 'nfse:ValorInss')) if valores is not None else None
+        valor_ir = format_valor(get_text(valores, 'nfse:ValorIr')) if valores is not None else None
+        valor_csll = format_valor(get_text(valores, 'nfse:ValorCsll')) if valores is not None else None
 
         item_lista = get_text(servico, 'nfse:ItemListaServico') if servico is not None else None
         codigo_tributacao = get_text(servico, 'nfse:CodigoTributacaoMunicipio') if servico is not None else None
