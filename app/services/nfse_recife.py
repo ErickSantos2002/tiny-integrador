@@ -4,9 +4,14 @@ Serviço para consulta de NFSe na Prefeitura do Recife
 import requests
 from datetime import datetime, timedelta, date
 from xml.sax.saxutils import escape
-import xml.etree.ElementTree as ET
 from typing import List, Dict, Optional
 from html import unescape
+try:
+    from lxml import etree as ET
+    USING_LXML = True
+except ImportError:
+    import xml.etree.ElementTree as ET
+    USING_LXML = False
 
 
 class NFSeRecifeService:
@@ -127,13 +132,21 @@ class NFSeRecifeService:
 
         # Parse do XML de resposta ABRASF
         try:
-            nfse_root = ET.fromstring(output_xml)
-        except ET.ParseError as e:
+            if USING_LXML:
+                # lxml é mais tolerante com XMLs problemáticos
+                parser = ET.XMLParser(recover=True, encoding='utf-8')
+                nfse_root = ET.fromstring(output_xml.encode('utf-8'), parser)
+            else:
+                nfse_root = ET.fromstring(output_xml)
+        except Exception as e:
             print(f"ERRO ao fazer parse do XML ABRASF: {e}")
             # Salva XML problemático para debug
-            with open('/tmp/nfse_error.xml', 'w', encoding='utf-8') as f:
-                f.write(output_xml)
-            print(f"XML salvo em /tmp/nfse_error.xml para análise")
+            try:
+                with open('/tmp/nfse_error.xml', 'w', encoding='utf-8') as f:
+                    f.write(output_xml)
+                print(f"XML salvo em /tmp/nfse_error.xml para análise")
+            except:
+                pass
             raise Exception(f"Erro ao processar XML de resposta NFSe. Verifique o formato do XML retornado pela prefeitura.")
 
         # Define namespace ABRASF
