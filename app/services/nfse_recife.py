@@ -90,8 +90,13 @@ class NFSeRecifeService:
         Returns:
             Lista de dicionários com dados das NFSe
         """
-        # Remove namespaces para facilitar parsing
-        root = ET.fromstring(xml_response)
+        try:
+            # Remove namespaces para facilitar parsing
+            root = ET.fromstring(xml_response)
+        except ET.ParseError as e:
+            print(f"ERRO ao fazer parse do XML de resposta SOAP: {e}")
+            print(f"Primeiros 500 caracteres da resposta: {xml_response[:500]}")
+            raise Exception(f"Erro ao processar resposta do servidor: {e}")
 
         # Busca o outputXML dentro do SOAP
         output_xml = None
@@ -101,13 +106,34 @@ class NFSeRecifeService:
                 break
 
         if not output_xml:
+            print("AVISO: Resposta não contém outputXML")
+            print(f"Resposta completa: {xml_response[:1000]}")
             return []
 
         # Decodifica o XML escapado
         output_xml = unescape(output_xml)
 
+        # Debug: mostra o XML decodificado
+        print(f"XML decodificado (primeiros 1000 chars): {output_xml[:1000]}")
+
         # Parse do XML de resposta ABRASF
-        nfse_root = ET.fromstring(output_xml)
+        try:
+            nfse_root = ET.fromstring(output_xml)
+        except ET.ParseError as e:
+            print(f"ERRO ao fazer parse do XML ABRASF decodificado: {e}")
+            print(f"XML completo que causou erro: {output_xml}")
+
+            # Tenta limpar caracteres inválidos
+            import re
+            # Remove caracteres de controle exceto tab, newline e carriage return
+            output_xml_limpo = re.sub(r'[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]', '', output_xml)
+
+            try:
+                nfse_root = ET.fromstring(output_xml_limpo)
+                print("XML parseado com sucesso após limpeza de caracteres inválidos")
+            except ET.ParseError as e2:
+                print(f"ERRO mesmo após limpeza: {e2}")
+                raise Exception(f"Erro ao processar XML de resposta NFSe: {e2}")
 
         # Define namespace ABRASF
         ns = {'nfse': self.namespace}
