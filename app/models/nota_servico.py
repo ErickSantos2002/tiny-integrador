@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Date, Numeric
+from sqlalchemy import Column, Integer, String, Text, Date, Numeric, Boolean
 from app.models.database import Base
 
 class NotaServico(Base):
@@ -81,3 +81,4 @@ class NotaServico(Base):
     discriminacao_servico = Column("discriminação_dos_serviços", Text, nullable=True)
     exercicio_fg = Column("exercício_fg_nfs_e_dr", Text, nullable=True)
     mes_fg = Column("mês_fg_nfs_e_dr", Numeric, nullable=True)
+    cancelada = Column("cancelada", Boolean, default=False, nullable=True)

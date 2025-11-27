@@ -29,10 +29,15 @@ def listar_notas_servico(
     data_fim: Optional[date] = Query(None),
     cidade_servico: Optional[str] = Query(None),
     uf_servico: Optional[str] = Query(None),
+    incluir_canceladas: bool = Query(False, description="Incluir notas canceladas na listagem"),
     db: Session = Depends(get_db)
 ):
     try:
         query = db.query(NotaServicoModel)
+
+        # Filtro padrão: apenas notas NÃO canceladas (a menos que explicitamente solicitado)
+        if not incluir_canceladas:
+            query = query.filter(NotaServicoModel.cancelada != True)
 
         if cpf_cnpj_tomador:
             query = query.filter(NotaServicoModel.cpf_cnpj_tomador.ilike(f"%{cpf_cnpj_tomador}%"))

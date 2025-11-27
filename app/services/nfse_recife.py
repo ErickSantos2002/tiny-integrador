@@ -174,8 +174,13 @@ class NFSeRecifeService:
                 if inf_nfse is None:
                     continue
 
+                # Verifica se a nota foi cancelada
+                nfse_cancelamento = comp_nfse.find('nfse:NfseCancelamento', ns)
+                cancelada = nfse_cancelamento is not None
+
                 # Extrai dados da NFSe
                 nota = self._extrair_dados_nfse(inf_nfse, ns)
+                nota['cancelada'] = cancelada
                 notas.append(nota)
 
             except Exception as e:
