@@ -97,8 +97,17 @@ class NFSeRecifeService:
         """
         try:
             # Remove namespaces para facilitar parsing
-            root = ET.fromstring(xml_response)
-        except ET.ParseError as e:
+            if USING_LXML:
+                # lxml requer bytes quando há declaração XML
+                if isinstance(xml_response, str):
+                    xml_response_bytes = xml_response.encode('utf-8')
+                else:
+                    xml_response_bytes = xml_response
+                parser = ET.XMLParser(recover=True, encoding='utf-8')
+                root = ET.fromstring(xml_response_bytes, parser)
+            else:
+                root = ET.fromstring(xml_response)
+        except Exception as e:
             print(f"ERRO ao fazer parse do XML de resposta SOAP: {e}")
             print(f"Primeiros 500 caracteres da resposta: {xml_response[:500]}")
             raise Exception(f"Erro ao processar resposta do servidor: {e}")
