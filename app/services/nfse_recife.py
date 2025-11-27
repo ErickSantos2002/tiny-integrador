@@ -113,27 +113,28 @@ class NFSeRecifeService:
         # Decodifica o XML escapado
         output_xml = unescape(output_xml)
 
-        # Debug: mostra o XML decodificado
-        print(f"XML decodificado (primeiros 1000 chars): {output_xml[:1000]}")
+        # Limpeza agressiva de caracteres inválidos ANTES de fazer parse
+        import re
+        # Remove caracteres de controle exceto tab (\x09), newline (\x0A) e carriage return (\x0D)
+        # Também mantém caracteres válidos em XML
+        output_xml = re.sub(r'[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F-\x9F]', ' ', output_xml)
+
+        # Remove múltiplos espaços
+        output_xml = re.sub(r'\s+', ' ', output_xml)
+
+        # Debug: mostra o XML decodificado (desativado em produção)
+        # print(f"XML decodificado (primeiros 1000 chars): {output_xml[:1000]}")
 
         # Parse do XML de resposta ABRASF
         try:
             nfse_root = ET.fromstring(output_xml)
         except ET.ParseError as e:
-            print(f"ERRO ao fazer parse do XML ABRASF decodificado: {e}")
-            print(f"XML completo que causou erro: {output_xml}")
-
-            # Tenta limpar caracteres inválidos
-            import re
-            # Remove caracteres de controle exceto tab, newline e carriage return
-            output_xml_limpo = re.sub(r'[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]', '', output_xml)
-
-            try:
-                nfse_root = ET.fromstring(output_xml_limpo)
-                print("XML parseado com sucesso após limpeza de caracteres inválidos")
-            except ET.ParseError as e2:
-                print(f"ERRO mesmo após limpeza: {e2}")
-                raise Exception(f"Erro ao processar XML de resposta NFSe: {e2}")
+            print(f"ERRO ao fazer parse do XML ABRASF: {e}")
+            # Salva XML problemático para debug
+            with open('/tmp/nfse_error.xml', 'w', encoding='utf-8') as f:
+                f.write(output_xml)
+            print(f"XML salvo em /tmp/nfse_error.xml para análise")
+            raise Exception(f"Erro ao processar XML de resposta NFSe. Verifique o formato do XML retornado pela prefeitura.")
 
         # Define namespace ABRASF
         ns = {'nfse': self.namespace}
