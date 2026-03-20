@@ -7,3 +7,4 @@ from .forma_envio import router as forma_envio
 from .marcador import router as marcador
 from .configuracoes import router as configuracoes
 from .estoque import router as estoque
+from .contas_pagar import router as contas_pagar
