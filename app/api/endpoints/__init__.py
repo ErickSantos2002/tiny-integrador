@@ -8,3 +8,4 @@ from .marcador import router as marcador
 from .configuracoes import router as configuracoes
 from .estoque import router as estoque
 from .contas_pagar import router as contas_pagar
+from .contas_receber import router as contas_receber

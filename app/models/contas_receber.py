@@ -1,0 +1,47 @@
+from sqlalchemy import Column, Integer, String, Date, Numeric, DateTime, SmallInteger, CHAR, BigInteger
+from app.models.database import Base
+
+
+class ContasReceber(Base):
+    __tablename__ = "contas_receber"
+    __table_args__ = {"schema": "tiny"}
+
+    id = Column(BigInteger, primary_key=True, index=True)
+    id_tiny = Column(BigInteger, unique=True, nullable=False)
+    data = Column(Date, nullable=False)
+    vencimento = Column(Date, nullable=False)
+    competencia = Column(Date, nullable=True)
+    valor = Column(Numeric(15, 2), nullable=False)
+    saldo = Column(Numeric(15, 2), nullable=False)
+    link_boleto = Column(String(500), nullable=True)
+    nro_documento = Column(String(500), nullable=True)
+    serie_documento = Column(String(500), nullable=True)
+    nro_banco = Column(String(500), nullable=True)
+    historico = Column(String(500), nullable=True)
+    categoria = Column(String(500), nullable=True)
+    forma_pagamento = Column(String(500), nullable=True)
+    portador = Column(String(500), nullable=True)
+    situacao = Column(String(500), nullable=True)
+    liquidacao = Column(Date, nullable=True)
+    ocorrencia = Column(CHAR(1), nullable=False)
+    dia_vencimento = Column(SmallInteger, nullable=True)
+    numero_parcelas = Column(SmallInteger, nullable=True)
+    dia_vencimento_semanal = Column(SmallInteger, nullable=True)
+    cliente_codigo = Column(String(30), nullable=True)
+    cliente_nome = Column(String(500), nullable=False)
+    cliente_tipo_pessoa = Column(CHAR(1), nullable=True)
+    cliente_cpf_cnpj = Column(String(500), nullable=True)
+    cliente_ie = Column(String(500), nullable=True)
+    cliente_rg = Column(String(500), nullable=True)
+    cliente_endereco = Column(String(500), nullable=True)
+    cliente_numero = Column(String(10), nullable=True)
+    cliente_complemento = Column(String(500), nullable=True)
+    cliente_bairro = Column(String(500), nullable=True)
+    cliente_cep = Column(String(500), nullable=True)
+    cliente_cidade = Column(String(500), nullable=True)
+    cliente_uf = Column(String(500), nullable=True)
+    cliente_pais = Column(String(500), nullable=True)
+    cliente_fone = Column(String(500), nullable=True)
+    cliente_email = Column(String(500), nullable=True)
+    created_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
