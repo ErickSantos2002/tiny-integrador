@@ -33,6 +33,7 @@ app.include_router(endpoints.configuracoes)
 app.include_router(endpoints.estoque)
 app.include_router(endpoints.contas_pagar)
 app.include_router(endpoints.contas_receber)
+app.include_router(endpoints.centro_custo)
 
 # Health check
 @app.get("/")
