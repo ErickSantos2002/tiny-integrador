@@ -33,6 +33,7 @@ def get_db():
 def resumo_produto(
     ano: int = Query(...),
     produto: str = Query(...),
+    exato: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     bad_markers = (
@@ -42,6 +43,11 @@ def resumo_produto(
     )
 
     cfop_filter = or_(*[NotaFiscal.natureza_operacao.ilike(c) for c in CFOPS])
+
+    if exato:
+        desc_filter = func.upper(ItemNotaModel.descricao) == produto.upper()
+    else:
+        desc_filter = ItemNotaModel.descricao.ilike(f"%{produto}%")
 
     rows = (
         db.query(
@@ -54,7 +60,7 @@ def resumo_produto(
             func.extract("year", NotaFiscal.data_emissao) == ano,
             NotaFiscal.descricao_situacao == "Emitida DANFE",
             cfop_filter,
-            ItemNotaModel.descricao.ilike(f"%{produto}%"),
+            desc_filter,
             not_(NotaFiscal.id.in_(bad_markers)),
         )
         .group_by(func.extract("month", NotaFiscal.data_emissao))
