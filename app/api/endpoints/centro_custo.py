@@ -114,6 +114,7 @@ def salvar_config(
         cfg.cmv_unitario = payload.cmv_unitario
         cfg.frete_unitario = payload.frete_unitario
         cfg.outros_custos_unitario = payload.outros_custos_unitario
+        cfg.config_json = payload.config_json
     else:
         cfg = CentroCustoConfigModel(**payload.model_dump())
         db.add(cfg)
