@@ -1,0 +1,27 @@
+# Ambiente / segredos
+.env
+.env.*
+!.env.example
+
+# Virtualenv
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# Certificados
+*.crt
+*.key
+*.pem
+*.pfx
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store

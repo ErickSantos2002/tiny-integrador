@@ -122,6 +122,45 @@ def listar_vendas(
 
     return query.all()
 
+# Novo endpoint: /locacao/  → notas com o marcador "Locação"
+@router.get("/locacao/", response_model=List[NotaFiscal])
+def listar_locacao(
+    id_cliente: Optional[int] = Query(None),
+    data_emissao: Optional[str] = Query(None),
+    data_inicio: Optional[str] = Query(None),
+    data_fim: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    query = db.query(NotaFiscalModel).options(
+        joinedload(NotaFiscalModel.cliente),
+        joinedload(NotaFiscalModel.enderecos_entrega),
+        joinedload(NotaFiscalModel.formas_envio),
+        joinedload(NotaFiscalModel.marcadores),
+        joinedload(NotaFiscalModel.itens),
+    )
+
+    # 🔹 Apenas notas com o marcador "Locação"
+    query = query.filter(
+        NotaFiscalModel.marcadores.any(
+            Marcador.descricao.ilike("loca%")
+        )
+    )
+
+    # 🔹 Filtros opcionais iguais ao /notas_fiscais
+    if id_cliente:
+        query = query.filter(NotaFiscalModel.id_cliente == id_cliente)
+
+    if data_inicio and data_fim:
+        query = query.filter(NotaFiscalModel.data_emissao.between(data_inicio, data_fim))
+    elif data_inicio:
+        query = query.filter(NotaFiscalModel.data_emissao >= data_inicio)
+    elif data_fim:
+        query = query.filter(NotaFiscalModel.data_emissao <= data_fim)
+    elif data_emissao:
+        query = query.filter(NotaFiscalModel.data_emissao == data_emissao)
+
+    return query.order_by(NotaFiscalModel.data_emissao.desc()).all()
+
 @router.patch("/{nota_id}/tipo", response_model=NotaFiscal)
 def atualizar_tipo_nota(
     nota_id: int = Path(..., description="ID da nota fiscal"),
