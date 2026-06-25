@@ -6,7 +6,7 @@ from app.models.database import SessionLocal
 from app.models.nota_servico import NotaServico as NotaServicoModel
 from app.schemas.nota_servico import NotaServico
 from fastapi.responses import JSONResponse
-from app.services.nfse_recife import NFSeRecifeService
+from app.services.nfse_recife_nacional import NFSeRecifeNacionalService
 from app.core.config import settings
 import traceback
 
@@ -89,17 +89,17 @@ def importar_nfse_recife(
         if not data_final:
             data_final = date.today()
 
-        # Inicializa serviço NFSe
+        # Inicializa serviço NFSe (agora via Ambiente de Dados Nacional / ADN)
         cert_path, key_path = settings.get_cert_paths()
-        nfse_service = NFSeRecifeService(
+        nfse_service = NFSeRecifeNacionalService(
             cert_path=cert_path,
             key_path=key_path,
             cnpj=settings.NFSE_CNPJ,
             inscricao_municipal=settings.NFSE_INSCRICAO_MUNICIPAL
         )
 
-        # Consulta NFSe na Prefeitura
-        print(f"Consultando NFSe de {data_inicial} até {data_final}...")
+        # Consulta NFSe no ambiente nacional (ADN)
+        print(f"Consultando NFSe (ADN nacional) de {data_inicial} até {data_final}...")
         notas_encontradas = nfse_service.consultar_nfse(data_inicial, data_final)
 
         if not notas_encontradas:
