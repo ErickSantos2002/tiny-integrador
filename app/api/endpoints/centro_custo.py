@@ -3,6 +3,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, not_
 from typing import List, Optional
 
+from app.core.faturamento import (
+    CFOPS_VENDA as CFOPS,
+    MARCADORES_RUINS,
+    SITUACAO_EMITIDA,
+)
 from app.models.database import SessionLocal
 from app.models.centro_custo_config import CentroCustoConfig as CentroCustoConfigModel
 from app.models.item_nota import ItemNota as ItemNotaModel
@@ -11,14 +16,6 @@ from app.models.marcador import Marcador
 from app.schemas.centro_custo_config import CentroCustoConfig, CentroCustoConfigCreate
 
 router = APIRouter(prefix="/centro_custo", tags=["Centro de Custo"])
-
-MARCADORES_RUINS = [
-    "cancelar", "cliente não quis o produto", "nf devolvida",
-    "nf cancelada", "nf recusada",
-    "nf recusada. cliente solicitou frete", "inutilizada",
-]
-
-CFOPS = ["%5102%", "%6102%", "%5108%", "%6108%"]
 
 
 def get_db():
@@ -58,7 +55,7 @@ def resumo_produto(
         .join(NotaFiscal, ItemNotaModel.id_nota == NotaFiscal.id)
         .filter(
             func.extract("year", NotaFiscal.data_emissao) == ano,
-            NotaFiscal.descricao_situacao == "Emitida DANFE",
+            NotaFiscal.descricao_situacao == SITUACAO_EMITIDA,
             cfop_filter,
             desc_filter,
             not_(NotaFiscal.id.in_(bad_markers)),

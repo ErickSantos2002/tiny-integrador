@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
 from typing import List, Optional
+from app.core.faturamento import SITUACAO_EMITIDA, filtro_cfop_venda, sem_marcador_ruim
 from app.models.database import SessionLocal
 from app.models.nota_fiscal import NotaFiscal as NotaFiscalModel
 from app.models.marcador import Marcador
@@ -82,30 +83,13 @@ def listar_vendas(
     )
 
     # 🔹 Filtra CFOP de vendas
-    query = query.filter(
-        (NotaFiscalModel.natureza_operacao.ilike("%6102%")) |
-        (NotaFiscalModel.natureza_operacao.ilike("%5102%")) |
-        (NotaFiscalModel.natureza_operacao.ilike("%6108%")) |
-        (NotaFiscalModel.natureza_operacao.ilike("%5108%"))
-    )
+    query = query.filter(filtro_cfop_venda())
 
     # 🔹 Apenas notas emitidas
-    query = query.filter(NotaFiscalModel.descricao_situacao == "Emitida DANFE")
+    query = query.filter(NotaFiscalModel.descricao_situacao == SITUACAO_EMITIDA)
 
     # 🔹 Excluir notas com marcadores problemáticos
-    query = query.filter(
-        ~NotaFiscalModel.marcadores.any(
-            Marcador.descricao.in_([
-                "cancelar",
-                "cliente não quis o produto",
-                "nf devolvida",
-                "nf cancelada",
-                "nf recusada",
-                "nf recusada. cliente solicitou frete",
-                "inutilizada"
-            ])
-        )
-    )
+    query = query.filter(sem_marcador_ruim())
 
     # 🔹 Filtros opcionais iguais ao /notas_fiscais
     if id_cliente:
