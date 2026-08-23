@@ -157,7 +157,49 @@ checa("o erro foi reportado na resposta", bool(r.get("erros")),
       json.dumps(r.get("erros"), ensure_ascii=False))
 checa("o banco continua com 2 linhas", len(linhas()) == 2, f"{len(linhas())} linhas")
 
-print("\n=== 4. Controle: o comportamento ANTIGO (casar por número) destrói a nota ===")
+print("\n=== 4. Reimportar NÃO desfaz a marcação manual de cancelada ===")
+prepara_banco()
+roda_importacao(
+    [nota_adn(749, CHAVE_NOVA, date(2026, 6, 30), "CLIENTE DE 2026", "475.00")]
+)
+db = SessionLocal()
+nova = db.query(NotaServico).filter(NotaServico.codigo_verificacao == CHAVE_NOVA).first()
+checa("nota criada pela importação nasce com cancelada=False (não NULL)",
+      nova.cancelada is False, f"cancelada={nova.cancelada!r}")
+nova.cancelada = True          # a equipe marca à mão, como faz hoje
+db.commit()
+db.close()
+
+r = roda_importacao(
+    [nota_adn(749, CHAVE_NOVA, date(2026, 6, 30), "CLIENTE DE 2026", "475.00")]
+)
+checa("a nota foi de fato reimportada", r["total_atualizadas"] == 1)
+nova = [n for n in linhas() if n.codigo_verificacao == CHAVE_NOVA][0]
+checa("a marcação de cancelada sobreviveu à reimportação",
+      nova.cancelada is True, f"cancelada={nova.cancelada!r}")
+
+print("\n=== 5. Nota com cancelada NULL não some da listagem ===")
+db = SessionLocal()
+db.execute(
+    text('UPDATE tiny.servicos SET cancelada = NULL WHERE "código_de_verificação_nf" = :c'),
+    {"c": CHAVE_NOVA},
+)
+db.commit()
+db.close()
+db = SessionLocal()
+try:
+    listadas = ep.listar_notas_servico(
+        cpf_cnpj_tomador=None, cpf_cnpj_prestador=None, data_emissao=None,
+        data_inicio=None, data_fim=None, cidade_servico=None, uf_servico=None,
+        incluir_canceladas=False, db=db,
+    )
+    chaves = {n.codigo_verificacao for n in listadas}
+finally:
+    db.close()
+checa("a nota com cancelada NULL aparece na listagem", CHAVE_NOVA in chaves,
+      f"{len(chaves)} nota(s) listada(s)")
+
+print("\n=== 6. Controle: o comportamento ANTIGO (casar por número) destrói a nota ===")
 prepara_banco()
 db = SessionLocal()
 alvo = db.query(NotaServico).filter(NotaServico.numero_nfse == 749).first()

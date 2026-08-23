@@ -219,6 +219,12 @@ class NFSeRecifeNacionalService:
             "bairro_tomador": self._txt(end_t, "n:xBairro"),
             "uf_tomador": self._txt(endnac_t, "n:UF"),     # geralmente ausente no leiaute
             "cep_tomador": self._txt(endnac_t, "n:CEP"),
-            # status — cancelamento no nacional vem como Evento separado (não tratado aqui)
-            "cancelada": False,
+            # `cancelada` NÃO é devolvida de propósito.
+            #
+            # No leiaute nacional o cancelamento chega como Evento separado, que este
+            # serviço ainda não trata — ou seja, aqui não se sabe se a nota foi
+            # cancelada. Devolver False seria afirmar o que não se sabe, e o upsert do
+            # endpoint sobrescreveria a marcação feita à mão pela equipe a cada
+            # reimportação. Quem não sabe, não responde: o campo fica de fora e o
+            # endpoint preserva o valor que já está no banco.
         }

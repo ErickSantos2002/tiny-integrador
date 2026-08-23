@@ -12,6 +12,12 @@ import traceback
 
 router = APIRouter(prefix="/notas_servico", tags=["Notas de Serviço"])
 
+# Campos que são curadoria NOSSA, não dado da origem: a importação nunca os
+# sobrescreve numa atualização. Hoje só `cancelada`, que é marcada à mão porque o
+# leiaute nacional entrega o cancelamento como Evento separado, ainda não tratado.
+# Sem esta proteção, cada reimportação da nota devolvia a marcação para o padrão.
+CAMPOS_DE_CURADORIA_LOCAL = {"cancelada"}
+
 # Dependency
 def get_db():
     db = SessionLocal()
@@ -35,9 +41,12 @@ def listar_notas_servico(
     try:
         query = db.query(NotaServicoModel)
 
-        # Filtro padrão: apenas notas NÃO canceladas (a menos que explicitamente solicitado)
+        # Filtro padrão: apenas notas NÃO canceladas (a menos que explicitamente solicitado).
+        # `is_not(True)` em vez de `!= True`: em SQL, `cancelada != TRUE` é NULL quando a
+        # coluna é NULL, e a linha fica de fora — uma nota sumiria do relatório só por
+        # estar com o campo em branco. `IS NOT TRUE` trata NULL como "não cancelada".
         if not incluir_canceladas:
-            query = query.filter(NotaServicoModel.cancelada != True)
+            query = query.filter(NotaServicoModel.cancelada.is_not(True))
 
         if cpf_cnpj_tomador:
             query = query.filter(NotaServicoModel.cpf_cnpj_tomador.ilike(f"%{cpf_cnpj_tomador}%"))
@@ -150,14 +159,20 @@ def importar_nfse_recife(
                 ).first()
 
                 if nota_existente:
-                    # Atualiza nota existente
+                    # Atualiza nota existente, preservando os campos de curadoria nossa
                     for key, value in nota_data.items():
+                        if key in CAMPOS_DE_CURADORIA_LOCAL:
+                            continue
                         if hasattr(nota_existente, key):
                             setattr(nota_existente, key, value)
                     atualizadas += 1
                 else:
-                    # Cria nova nota
-                    nova_nota = NotaServicoModel(**nota_data)
+                    # Cria nova nota. Os campos de curadoria começam no padrão do
+                    # modelo (cancelada=False) e só mudam por ação nossa.
+                    nova_nota = NotaServicoModel(**{
+                        k: v for k, v in nota_data.items()
+                        if k not in CAMPOS_DE_CURADORIA_LOCAL
+                    })
                     db.add(nova_nota)
                     importadas += 1
 
