@@ -229,7 +229,7 @@ print(response.json())
 
 1. **Consulta na Prefeitura**: O endpoint usa o serviço `NFSeRecifeService` que faz requisição SOAP para o Web Service da Prefeitura do Recife
 2. **Parse do XML**: Converte a resposta XML em objetos Python
-3. **Verificação de Duplicatas**: Verifica se a NFSe já existe no banco (por número)
+3. **Verificação de Duplicatas**: Verifica se a NFSe já existe no banco pela **chave de acesso** (50 dígitos, única por documento). O número da NFS-e **não** serve como chave: em 18/06/2026 a numeração reiniciou com a migração para o Emissor Nacional, e casar por número sobrescrevia notas antigas de mesmo número
 4. **Inserção/Atualização**:
    - Se não existe: cria novo registro
    - Se existe: atualiza os dados

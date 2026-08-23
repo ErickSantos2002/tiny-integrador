@@ -71,8 +71,8 @@ class NFSeRecifeNacionalService:
     # -------------------------------------------------------------- HTTP/ADN
     def _paginar(self, desde_nsu: int, max_paginas: int = 80) -> List[Dict]:
         """Pagina a distribuição por NSU. Levanta exceção se uma página falhar de
-        vez (melhor falhar e reprocessar depois — o dedupe por número evita
-        duplicar — do que importar parcial silenciosamente)."""
+        vez (melhor falhar e reprocessar depois — o dedupe por chave de acesso
+        evita duplicar — do que importar parcial silenciosamente)."""
         docs: List[Dict] = []
         nsu = desde_nsu
         with requests.Session() as session:

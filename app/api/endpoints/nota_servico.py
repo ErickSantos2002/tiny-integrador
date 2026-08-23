@@ -125,9 +125,28 @@ def importar_nfse_recife(
 
         for nota_data in notas_encontradas:
             try:
-                # Verifica se nota já existe (busca por número)
+                # Identidade da nota = CHAVE DE ACESSO (50 dígitos), nunca o número.
+                #
+                # O número da NFS-e NÃO é único: em 18/06/2026 a emissão migrou para o
+                # Emissor Nacional e a numeração REINICIOU (a série do Recife estava em
+                # 5.723; a nacional recomeçou em 725). Casar por número fazia a nota nova
+                # nº 749 encontrar a nota de 2019 nº 749 e sobrescrevê-la, em silêncio.
+                # Impacto medido em 23/08/2026: ~280 notas de 2018-2021 já foram perdidas
+                # dessa forma (faixa 725-1058), e outras 4.405 estavam na fila.
+                # A chave de acesso (doc["ChaveAcesso"]) é única por documento fiscal.
+                chave = nota_data.get('codigo_verificacao')
+                if not chave:
+                    # Sem chave não há identidade confiável. Não inserir às cegas nem
+                    # cair de volta no número: pular e reportar.
+                    erros.append({
+                        "nfse": nota_data.get('numero_nfse'),
+                        "erro": "NFS-e sem chave de acesso; ignorada para não arriscar "
+                                "sobrescrever outra nota"
+                    })
+                    continue
+
                 nota_existente = db.query(NotaServicoModel).filter(
-                    NotaServicoModel.numero_nfse == nota_data['numero_nfse']
+                    NotaServicoModel.codigo_verificacao == chave
                 ).first()
 
                 if nota_existente:
