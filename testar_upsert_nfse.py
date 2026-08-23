@@ -50,11 +50,29 @@ def checa(descricao, condicao, detalhe=""):
         falhas.append(descricao)
 
 
-def prepara_banco():
+def prepara_banco(com_migration=True):
     with engine.begin() as conn:
         conn.execute(text("DROP SCHEMA IF EXISTS tiny CASCADE"))
         conn.execute(text("CREATE SCHEMA tiny"))
     Base.metadata.create_all(engine, tables=[NotaServico.__table__])
+    # A constraint abaixo existe no banco REAL mas não é declarada no model — sem
+    # recriá-la aqui, o teste roda contra um schema mais permissivo que a produção
+    # e deixa passar exatamente o defeito que ela causa.
+    with engine.begin() as conn:
+        conn.execute(text(
+            'ALTER TABLE tiny.servicos ADD CONSTRAINT servicos_numero_nf_unique '
+            'UNIQUE ("nº_da_nota_fiscal_eletrônica")'
+        ))
+        if com_migration:
+            # migrations/002 — a identidade passa a ser a chave de acesso
+            conn.execute(text(
+                "ALTER TABLE tiny.servicos DROP CONSTRAINT servicos_numero_nf_unique"
+            ))
+            conn.execute(text(
+                'CREATE UNIQUE INDEX servicos_chave_acesso_unique '
+                'ON tiny.servicos ("código_de_verificação_nf") '
+                "WHERE \"código_de_verificação_nf\" ~ '^[0-9]{50}$'"
+            ))
     db = SessionLocal()
     db.add(
         NotaServico(
@@ -111,6 +129,21 @@ def linhas():
     finally:
         db.close()
 
+
+print("\n=== 0. SEM a migration 002, o banco rejeita a nota nova (justifica a migration) ===")
+print("    (o traceback de UniqueViolation abaixo é ESPERADO: é o endpoint logando a falha)")
+prepara_banco(com_migration=False)
+try:
+    r = roda_importacao(
+        [nota_adn(749, CHAVE_NOVA, date(2026, 6, 30), "CLIENTE DE 2026", "475.00")]
+    )
+    rejeitou = r.get("success") is False
+except Exception:
+    rejeitou = True
+checa("com a constraint antiga (UNIQUE no número) a importação falha", rejeitou,
+      "é exatamente o que a migration 002 remove")
+checa("e a nota de 2019 continua intacta (falhou sem destruir)",
+      len(linhas()) == 1 and linhas()[0].razao_social_tomador == "CLIENTE DE 2019")
 
 print("\n=== 1. Nota nova nº 749 (2026) não pode sobrescrever a nº 749 de 2019 ===")
 prepara_banco()
