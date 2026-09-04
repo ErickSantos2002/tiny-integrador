@@ -26,6 +26,8 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
+from app.services.tiny_schema import caber_no_schema
+
 from app.models.cliente import Cliente
 from app.models.endereco_entrega import EnderecoEntrega
 from app.models.forma_envio import FormaEnvio
@@ -247,6 +249,7 @@ def garantir_cliente(db: Session, dados: Optional[dict]) -> Optional[int]:
     """
     if not dados:
         return None
+    dados = caber_no_schema(Cliente, dados)
     cliente = db.query(Cliente).filter(Cliente.cpf_cnpj == dados["cpf_cnpj"]).one_or_none()
     if cliente is None:
         cliente = Cliente(**dados)
@@ -288,7 +291,7 @@ def _sincronizar_filhos(db: Session, modelo, id_nota: int, campos: list[str],
         db.delete(obsoleto)
     db.flush()
     for dados in desejados:
-        db.add(modelo(id_nota=id_nota, **dados))
+        db.add(modelo(id_nota=id_nota, **caber_no_schema(modelo, dados)))
     return antes, depois
 
 
@@ -314,6 +317,7 @@ def salvar_nota(db: Session, nf: dict, *, dry_run: bool = False) -> dict:
         "filhos": {},
     }
 
+    dados = caber_no_schema(NotaFiscal, dados)
     nota = db.query(NotaFiscal).filter(NotaFiscal.id_tiny == dados["id_tiny"]).one_or_none()
 
     filhos = [

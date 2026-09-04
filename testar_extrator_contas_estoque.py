@@ -164,6 +164,18 @@ def main():
     checa("a conta aberta no banco entra na reconferência", "500000001" in em_aberto, str(em_aberto))
     checa("a já paga não entra", "500000002" not in em_aberto, str(em_aberto))
 
+    print("\n5c. Campo maior que a coluna não derruba a conta")
+    # Em 2026-09-04 uma conta a receber de R$ 23.520 se perdeu porque o número do
+    # endereço do cliente vinha como "NAO INFORMADO" — 13 caracteres num varchar(10).
+    relato = salvar_conta(db, "receber", conta_exemplo(
+        id="700000009",
+        cliente={"nome": "ITUIUTABA BIOENERGIA LTDA.", "cpf_cnpj": "08164344000148",
+                 "numero": "NAO INFORMADO", "tipo_pessoa": "J"}))
+    salva = db.query(ContasReceber).filter(ContasReceber.id_tiny == 700000009).one_or_none()
+    checa("a conta entrou apesar do campo grande", salva is not None, str(relato["acao"]))
+    checa("o campo foi truncado no limite da coluna",
+          salva is not None and salva.cliente_numero == "NAO INFORM", str(salva and salva.cliente_numero))
+
     print("\n6. Produto novo entra — inclusive o das páginas que o n8n não inseria")
     relato = salvar_produto(db, produto_exemplo(), saldo="7")
     produto = db.query(Estoque).filter(Estoque.id == 613852626).one_or_none()

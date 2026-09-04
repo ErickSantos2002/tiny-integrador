@@ -25,6 +25,8 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
+from app.services.tiny_schema import caber_no_schema
+
 from app.models.contas_pagar import ContasPagar
 from app.models.contas_receber import ContasReceber
 
@@ -176,6 +178,7 @@ def salvar_conta(db: Session, tipo: str, conta: dict, *, dry_run: bool = False) 
     if faltando:
         raise ValueError(f"conta {dados['id_tiny']}: campo obrigatório vazio: {', '.join(faltando)}")
 
+    dados = caber_no_schema(modelo, dados)
     registro = db.query(modelo).filter(modelo.id_tiny == dados["id_tiny"]).one_or_none()
 
     if registro is None:

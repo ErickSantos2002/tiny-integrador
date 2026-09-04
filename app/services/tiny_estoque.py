@@ -23,6 +23,8 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
+from app.services.tiny_schema import caber_no_schema
+
 from app.models.estoque import Estoque
 
 logger = logging.getLogger(__name__)
@@ -113,6 +115,7 @@ def salvar_produto(db: Session, produto: dict, saldo: Any = None, *,
     relato = {"id": dados["id"], "codigo": dados.get("codigo"), "nome": dados.get("nome"),
               "saldo": dados.get("saldo"), "mudancas": {}}
 
+    dados = caber_no_schema(Estoque, dados)
     registro = db.query(Estoque).filter(Estoque.id == dados["id"]).one_or_none()
 
     if registro is None:
