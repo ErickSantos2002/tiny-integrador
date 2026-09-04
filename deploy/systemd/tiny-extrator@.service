@@ -1,0 +1,20 @@
+# Um job do extrator do Tiny. O nome da instância é o módulo: tiny-extrator@extrair_notas
+#
+# Instalar na VPS:
+#   cp deploy/systemd/tiny-extrator@.service /etc/systemd/system/
+#   cp deploy/systemd/tiny-extrator-*.timer  /etc/systemd/system/
+#   cp deploy/rodar-job.sh /opt/datacore-jobs/
+#   systemctl daemon-reload
+#   systemctl enable --now tiny-extrator-notas.timer tiny-extrator-contas.timer tiny-extrator-estoque.timer
+[Unit]
+Description=Extrator do Tiny — %i
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# `--dias 14` fica no timer, não aqui: cada job tem a sua janela.
+ExecStart=/opt/datacore-jobs/rodar-job.sh %i
+# O log vai para o journal: journalctl -u tiny-extrator@extrair_notas
+StandardOutput=journal
+StandardError=journal

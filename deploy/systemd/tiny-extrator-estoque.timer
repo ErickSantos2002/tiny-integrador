@@ -1,0 +1,11 @@
+# Substitui `[DATACORE] Atualizar estoque` (16h UTC).
+[Unit]
+Description=Carga de produtos e saldo de estoque do Tiny
+
+[Timer]
+OnCalendar=*-*-* 16:00:00 UTC
+Persistent=true
+Unit=tiny-extrator@extrair_estoque.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+# Substitui `Puxar_Contas_Pagar` (10h UTC) e `Puxar_Contas_Receber` (12h UTC).
+# Um job só faz as duas, então roda uma vez: às 10h, como o primeiro deles.
+[Unit]
+Description=Carga de contas a pagar e a receber do Tiny
+
+[Timer]
+OnCalendar=*-*-* 10:00:00 UTC
+Persistent=true
+Unit=tiny-extrator@extrair_contas.service
+
+[Install]
+WantedBy=timers.target

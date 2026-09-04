@@ -7,6 +7,10 @@ from typing import Optional
 class Settings(BaseSettings):
     DATABASE_URL: str
 
+    # Token da API do Tiny (api2), usado pelo extrator de notas fiscais.
+    # Opcional para a API subir sem ele: quem precisa é o job, que reclama na hora.
+    TINY_TOKEN: Optional[str] = None
+
     # Configurações NFSe Recife
     # Opção 1: Caminhos para arquivos locais (desenvolvimento)
     NFSE_CERT_PATH: Optional[str] = None

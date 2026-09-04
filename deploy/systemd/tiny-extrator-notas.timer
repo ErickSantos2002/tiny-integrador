@@ -1,0 +1,12 @@
+# Substitui os dois gatilhos do fluxo `[DATACORE] Puxar_Notas` (4h e 15h UTC).
+[Unit]
+Description=Carga de notas fiscais do Tiny (2x ao dia)
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 UTC
+OnCalendar=*-*-* 15:00:00 UTC
+Persistent=true
+Unit=tiny-extrator@extrair_notas.service
+
+[Install]
+WantedBy=timers.target
