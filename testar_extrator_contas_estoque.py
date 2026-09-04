@@ -33,6 +33,7 @@ from app.models.estoque import Estoque  # noqa: E402
 from app.services.tiny_api import TinyAPI, TinySemRegistros  # noqa: E402
 from app.services.tiny_contas import normalizar_conta, salvar_conta  # noqa: E402
 from app.services.tiny_estoque import normalizar_produto, salvar_produto  # noqa: E402
+from app.jobs.extrair_contas import ids_em_aberto_no_banco  # noqa: E402
 
 falhas = []
 
@@ -152,6 +153,16 @@ def main():
     checa("guardou o portador", cr.portador == "Itaú")
     dados = normalizar_conta("receber", receber)
     checa("usa `dia_vencimento_semanal` (nome só de receber)", "dia_vencimento_semanal" in dados)
+
+    print("\n5b. A reconferência olha o que o BANCO acha em aberto, não só o Tiny")
+    # Conta paga SOME da lista de abertas do Tiny. Se a carga só perguntasse à origem,
+    # a conta que ficou `aberto` no banco nunca mais seria reconferida — eram 223 contas
+    # a pagar, R$ 955.296,09, presas em aberto desde 2021.
+    salvar_conta(db, "pagar", conta_exemplo(id="500000001", situacao="aberto"))
+    salvar_conta(db, "pagar", conta_exemplo(id="500000002", situacao="pago", saldo="0"))
+    em_aberto = ids_em_aberto_no_banco(db, "pagar")
+    checa("a conta aberta no banco entra na reconferência", "500000001" in em_aberto, str(em_aberto))
+    checa("a já paga não entra", "500000002" not in em_aberto, str(em_aberto))
 
     print("\n6. Produto novo entra — inclusive o das páginas que o n8n não inseria")
     relato = salvar_produto(db, produto_exemplo(), saldo="7")

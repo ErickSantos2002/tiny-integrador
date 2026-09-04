@@ -11,6 +11,15 @@ A carga tem duas partes, e a segunda é a que o n8n não tinha:
 2. **reconferência do que está em aberto**, de qualquer data — é o que percebe que uma
    conta antiga foi paga. Sem isso o banco acumula passivo fantasma: em 2026-09-03 ele
    dizia 226 contas a pagar em aberto (R$ 962 mil) contra 3 no Tiny.
+
+E "em aberto" tem que ser perguntado aos **dois lados**, não só à origem:
+
+* o que o Tiny diz estar em aberto pega a conta que o banco nunca viu (eram 194 contas a
+  receber, R$ 1.105.358,23, ausentes do banco);
+* o que o **banco** diz estar em aberto pega o caso oposto, que é o mais comum: a conta
+  foi paga no Tiny e por isso *sumiu* da lista de abertas de lá. Perguntando só à origem,
+  aquelas 223 contas a pagar (R$ 955.296,09) ficariam abertas para sempre — o que ficou
+  claro na primeira execução real, em 2026-09-04, quando a reconferência voltou vazia.
 """
 
 from __future__ import annotations
@@ -23,7 +32,7 @@ from datetime import date, timedelta
 from app.core.config import settings
 from app.models.database import SessionLocal
 from app.services.tiny_api import ESPERA_PADRAO, TinyAPI, TinyAPIError, TinySemRegistros
-from app.services.tiny_contas import salvar_conta
+from app.services.tiny_contas import CONFIG, salvar_conta
 
 logger = logging.getLogger("extrair_contas")
 
@@ -43,6 +52,17 @@ def montar_argumentos(argv=None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def ids_em_aberto_no_banco(db, tipo: str) -> list[str]:
+    """O que o banco ainda considera não quitado.
+
+    É a metade da reconferência que a origem não consegue dar: conta paga sai da lista de
+    abertas do Tiny, então perguntar só a ele deixa o banco desatualizado para sempre.
+    """
+    modelo = CONFIG[tipo]["modelo"]
+    linhas = db.query(modelo.id_tiny).filter(modelo.situacao.in_(("aberto", "parcial"))).all()
+    return [str(linha[0]) for linha in linhas if linha[0] is not None]
+
+
 def processar(api: TinyAPI, db, tipo: str, args) -> tuple[dict, int]:
     inicio = args.desde or (date.today() - timedelta(days=args.dias))
     fim = args.ate or date.today()
@@ -51,8 +71,10 @@ def processar(api: TinyAPI, db, tipo: str, args) -> tuple[dict, int]:
     vistos: set[str] = set()
     for origem, gerador in (
         ("emitidas no período", api.pesquisar_ids_de_contas(tipo, inicio, fim)),
-        ("em aberto (qualquer data)",
+        ("em aberto no Tiny",
          iter(()) if args.sem_reconferir else api.pesquisar_ids_de_contas_em_aberto(tipo)),
+        ("em aberto no banco",
+         iter(()) if args.sem_reconferir else iter(ids_em_aberto_no_banco(db, tipo))),
     ):
         try:
             novos = [i for i in gerador if i not in vistos]
