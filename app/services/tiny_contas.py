@@ -161,6 +161,38 @@ def _equivalente(atual: Any, novo: Any) -> bool:
     return atual == novo
 
 
+def marcar_excluida_na_origem(db: Session, tipo: str, id_tiny: str,
+                              *, dry_run: bool = False) -> Optional[str]:
+    """A origem respondeu "não localizada" para esta conta: registra o fato na linha.
+
+    Isso substitui o que antes era contado como erro. O financeiro exclui a conta vencida
+    no Tiny e reemite com id novo (confirmado em 2026-09-05), então o id some da origem e
+    a linha aqui ficaria `aberto` para sempre — em 2026-09-05 eram 226 contas a pagar
+    (R$ 962.071,57) e 41 a receber (R$ 173.480,80) de passivo que não existe mais.
+
+    Devolve o que aconteceu, ou None se a conta nem está no banco (nesse caso não há o
+    que marcar: a origem negou um id que veio da própria pesquisa dela).
+    """
+    modelo = CONFIG[tipo]["modelo"]
+    try:
+        numero = int(id_tiny)
+    except (TypeError, ValueError):
+        return None
+
+    registro = db.query(modelo).filter(modelo.id_tiny == numero).one_or_none()
+    if registro is None:
+        return None
+    if registro.excluida_na_origem_em is not None:
+        return "ja_marcada"
+    if dry_run:
+        return "marcaria"
+
+    registro.excluida_na_origem_em = datetime.now()
+    registro.updated_at = datetime.now()
+    db.commit()
+    return "marcada"
+
+
 def salvar_conta(db: Session, tipo: str, conta: dict, *, dry_run: bool = False) -> dict:
     """Grava uma conta. Uma transação por conta."""
     modelo = CONFIG[tipo]["modelo"]
@@ -191,6 +223,14 @@ def salvar_conta(db: Session, tipo: str, conta: dict, *, dry_run: bool = False) 
 
     mudancas = {c: (getattr(registro, c), v) for c, v in dados.items()
                 if not _equivalente(getattr(registro, c, None), v)}
+
+    # A conta foi dada como sumida e a origem acabou de devolvê-la: a marca estava errada
+    # (ou o id foi reaproveitado). Limpar aqui é o que torna a marcação reversível
+    # sozinha — nenhum conserto manual para um falso positivo da API.
+    ressuscitou = registro.excluida_na_origem_em is not None
+    if ressuscitou:
+        mudancas["excluida_na_origem_em"] = (registro.excluida_na_origem_em, None)
+
     relato["mudancas"] = mudancas
     relato["acao"] = ("atualizaria" if dry_run else "atualizada") if mudancas else "inalterada"
 

@@ -57,9 +57,20 @@ CODIGOS_TEMPORARIOS = {"6"}
 # procurando contas com situação "parcial", que naquele dia não existiam).
 CODIGO_SEM_REGISTROS = "20"
 
+# "Conta a pagar/receber não localizada": o id existiu e não existe mais. Não é falha
+# nossa nem da API — é o financeiro excluindo a conta vencida e reemitindo com id novo
+# (confirmado com eles em 2026-09-05). Precisa de exceção própria porque a reação é
+# específica: marcar a linha como excluída na origem e parar de perguntar por ela.
+# Tratar como erro genérico é o que fazia o job terminar `exit 1` todo santo dia.
+CODIGO_NAO_LOCALIZADO = "32"
+
 
 class TinySemRegistros(Exception):
     """A pesquisa funcionou e não achou nada. Não é erro."""
+
+
+class TinyNaoLocalizado(Exception):
+    """O registro não existe (mais) na origem. Fato, não falha."""
 
 
 class TinyAPIError(Exception):
@@ -138,6 +149,8 @@ class TinyAPI:
                 texto = _texto_do_erro(retorno)
                 if codigo == CODIGO_SEM_REGISTROS or "não retornou registros" in texto:
                     raise TinySemRegistros(texto)
+                if codigo == CODIGO_NAO_LOCALIZADO:
+                    raise TinyNaoLocalizado(texto)
                 erro = TinyAPIError(texto, codigo)
                 if erro.temporario and tentativa < self.tentativas:
                     ultimo_erro = erro

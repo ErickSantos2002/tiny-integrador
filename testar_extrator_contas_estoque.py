@@ -30,8 +30,10 @@ from app.models.database import Base, SessionLocal, engine  # noqa: E402
 from app.models.contas_pagar import ContasPagar  # noqa: E402
 from app.models.contas_receber import ContasReceber  # noqa: E402
 from app.models.estoque import Estoque  # noqa: E402
-from app.services.tiny_api import TinyAPI, TinySemRegistros  # noqa: E402
-from app.services.tiny_contas import normalizar_conta, salvar_conta  # noqa: E402
+from app.services.tiny_api import (TinyAPI, TinyAPIError, TinyNaoLocalizado,  # noqa: E402
+                                   TinySemRegistros)
+from app.services.tiny_contas import (marcar_excluida_na_origem,  # noqa: E402
+                                      normalizar_conta, salvar_conta)
 from app.services.tiny_estoque import normalizar_produto, salvar_produto  # noqa: E402
 from app.jobs.extrair_contas import ids_em_aberto_no_banco  # noqa: E402
 
@@ -92,6 +94,31 @@ class APIFalsa(TinyAPI):
             return {"status_processamento": "2"}
         return {"status_processamento": "3", "numero_paginas": len(self.paginas),
                 "produtos": [{"produto": p} for p in self.paginas[pagina - 1]]}
+
+
+class RespostaFalsa:
+    """Uma resposta HTTP 200 com o corpo que a api2 devolve — erro vem no corpo, não no
+    código HTTP, e é exatamente essa a pegadinha que o cliente precisa tratar."""
+
+    status_code = 200
+    headers: dict = {}
+
+    def __init__(self, corpo):
+        self._corpo = corpo
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._corpo
+
+
+class SessaoFalsa:
+    def __init__(self, corpo):
+        self._corpo = corpo
+
+    def get(self, url, params=None, timeout=None):
+        return RespostaFalsa(self._corpo)
 
 
 def recriar_schema():
@@ -175,6 +202,69 @@ def main():
     checa("a conta entrou apesar do campo grande", salva is not None, str(relato["acao"]))
     checa("o campo foi truncado no limite da coluna",
           salva is not None and salva.cliente_numero == "NAO INFORM", str(salva and salva.cliente_numero))
+
+    print("\n5d. Conta que sumiu do Tiny é MARCADA, não contada como erro")
+    # Confirmado com o financeiro em 2026-09-05: conta que atrasa é EXCLUÍDA no Tiny e
+    # reemitida com id novo. O id some da origem e a linha ficaria `aberto` para sempre —
+    # eram 226 contas a pagar (R$ 962.071,57) e 41 a receber (R$ 173.480,80).
+    api_sumida = TinyAPI("token", espera=0, sessao=SessaoFalsa(
+        {"retorno": {"status_processamento": "2", "status": "Erro", "codigo_erro": "32",
+                     "erros": [{"erro": "Conta a pagar não localizada"}]}}))
+    try:
+        api_sumida._get("conta.pagar.obter.php", {"id": "1"})
+        checa("codigo_erro 32 vira TinyNaoLocalizado", False, "não levantou")
+    except TinyNaoLocalizado as erro:
+        checa("codigo_erro 32 vira TinyNaoLocalizado", "não localizada" in str(erro), str(erro))
+    except Exception as erro:                       # noqa: BLE001 — o ponto é o tipo
+        checa("codigo_erro 32 vira TinyNaoLocalizado", False, type(erro).__name__)
+
+    # e um erro de verdade continua sendo erro: sem isto, a "correção" viraria um
+    # silenciador geral e o exit code continuaria sem significar nada.
+    api_quebrada = TinyAPI("token", espera=0, tentativas=1, sessao=SessaoFalsa(
+        {"retorno": {"status": "Erro", "codigo_erro": "1",
+                     "erros": [{"erro": "Token inválido"}]}}))
+    try:
+        api_quebrada._get("conta.pagar.obter.php", {"id": "1"})
+        checa("erro de verdade continua sendo TinyAPIError", False, "não levantou")
+    except TinyNaoLocalizado:
+        checa("erro de verdade continua sendo TinyAPIError", False, "virou não-localizado")
+    except TinyAPIError as erro:
+        checa("erro de verdade continua sendo TinyAPIError", "Token" in str(erro), str(erro))
+
+    # 500000001 está no banco como 'aberto' desde o bloco 5b
+    checa("antes: a conta entra na reconferência",
+          "500000001" in ids_em_aberto_no_banco(db, "pagar"))
+    resultado = marcar_excluida_na_origem(db, "pagar", "500000001")
+    sumida = db.query(ContasPagar).filter(ContasPagar.id_tiny == 500000001).one()
+    checa("a conta foi marcada", resultado == "marcada", str(resultado))
+    checa("com a data em que sumiu", sumida.excluida_na_origem_em is not None)
+    checa("a situação NÃO foi mexida (bronze registra, não reescreve)",
+          sumida.situacao == "aberto", str(sumida.situacao))
+    checa("depois: a conta sai da reconferência",
+          "500000001" not in ids_em_aberto_no_banco(db, "pagar"),
+          str(ids_em_aberto_no_banco(db, "pagar")))
+    checa("marcar de novo é inócuo",
+          marcar_excluida_na_origem(db, "pagar", "500000001") == "ja_marcada")
+    checa("id que não está no banco não inventa linha",
+          marcar_excluida_na_origem(db, "pagar", "999999999") is None)
+    checa("e não criou linha nenhuma", db.query(ContasPagar).filter(
+        ContasPagar.id_tiny == 999999999).count() == 0)
+    checa("dry-run não escreve", marcar_excluida_na_origem(
+        db, "pagar", "500000002", dry_run=True) == "marcaria")
+    checa("  (e a conta continua sem marca)", db.query(ContasPagar).filter(
+        ContasPagar.id_tiny == 500000002).one().excluida_na_origem_em is None)
+
+    print("\n5e. Conta marcada que reaparece na origem é desmarcada sozinha")
+    # A reversibilidade é o motivo de marcar em vez de apagar: se a API der um falso
+    # "não localizada", a passagem seguinte conserta sem ninguém mexer no banco.
+    relato = salvar_conta(db, "pagar", conta_exemplo(id="500000001", situacao="aberto"))
+    db.refresh(sumida)
+    checa("a marca foi limpa", sumida.excluida_na_origem_em is None,
+          str(sumida.excluida_na_origem_em))
+    checa("e o relato registra que ela voltou",
+          "excluida_na_origem_em" in relato["mudancas"], str(sorted(relato["mudancas"])))
+    checa("volta a entrar na reconferência",
+          "500000001" in ids_em_aberto_no_banco(db, "pagar"))
 
     print("\n6. Produto novo entra — inclusive o das páginas que o n8n não inseria")
     relato = salvar_produto(db, produto_exemplo(), saldo="7")

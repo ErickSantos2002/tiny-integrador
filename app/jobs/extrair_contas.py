@@ -20,6 +20,16 @@ E "em aberto" tem que ser perguntado aos **dois lados**, não só à origem:
   foi paga no Tiny e por isso *sumiu* da lista de abertas de lá. Perguntando só à origem,
   aquelas 223 contas a pagar (R$ 955.296,09) ficariam abertas para sempre — o que ficou
   claro na primeira execução real, em 2026-09-04, quando a reconferência voltou vazia.
+
+E há um terceiro caso, que não é pagamento: a conta **deixou de existir** na origem. O
+financeiro confirmou em 2026-09-05 que conta atrasada é excluída no Tiny e reemitida com
+id novo. A API responde `codigo_erro 32` ("não localizada") e a linha aqui ficaria em
+aberto para sempre. Isso vira `excluida_na_origem_em` na tabela — não erro, não `DELETE`:
+a linha é a prova de que o atraso existiu, e a silver é quem filtra.
+
+Enquanto isso era contado como erro, o job terminava `exit 1` **todo dia** — 226 contas a
+pagar e 41 a receber em 2026-09-05. O estrago não era o código de saída feio: era o alarme
+queimado, porque uma falha nova ficava indistinguível do barulho de sempre.
 """
 
 from __future__ import annotations
@@ -31,8 +41,9 @@ from datetime import date, timedelta
 
 from app.core.config import settings
 from app.models.database import SessionLocal
-from app.services.tiny_api import ESPERA_PADRAO, TinyAPI, TinyAPIError, TinySemRegistros
-from app.services.tiny_contas import CONFIG, salvar_conta
+from app.services.tiny_api import (ESPERA_PADRAO, TinyAPI, TinyAPIError,
+                                   TinyNaoLocalizado, TinySemRegistros)
+from app.services.tiny_contas import CONFIG, marcar_excluida_na_origem, salvar_conta
 
 logger = logging.getLogger("extrair_contas")
 
@@ -59,7 +70,12 @@ def ids_em_aberto_no_banco(db, tipo: str) -> list[str]:
     abertas do Tiny, então perguntar só a ele deixa o banco desatualizado para sempre.
     """
     modelo = CONFIG[tipo]["modelo"]
-    linhas = db.query(modelo.id_tiny).filter(modelo.situacao.in_(("aberto", "parcial"))).all()
+    linhas = (db.query(modelo.id_tiny)
+              .filter(modelo.situacao.in_(("aberto", "parcial")))
+              # Conta que a origem já negou não volta a existir: perguntar de novo só
+              # gasta chamada. Eram 267 por dia — a maior parte dos 52 min do job.
+              .filter(modelo.excluida_na_origem_em.is_(None))
+              .all())
     return [str(linha[0]) for linha in linhas if linha[0] is not None]
 
 
@@ -94,6 +110,16 @@ def processar(api: TinyAPI, db, tipo: str, args) -> tuple[dict, int]:
         try:
             conta = api.obter_conta(tipo, id_tiny)
             relato = salvar_conta(db, tipo, conta, dry_run=args.dry_run)
+        except TinyNaoLocalizado:
+            # A conta sumiu da origem — o financeiro exclui a vencida e reemite com id
+            # novo. Fato conhecido, não falha: marcar e seguir, sem sujar o exit code.
+            resultado = marcar_excluida_na_origem(db, tipo, id_tiny, dry_run=args.dry_run)
+            chave = {None: "sumida (não estava no banco)",
+                     "ja_marcada": "sumida (já marcada)"}.get(resultado, "excluída na origem")
+            contagem[chave] = contagem.get(chave, 0) + 1
+            if resultado in ("marcada", "marcaria"):
+                logger.info("  conta %-10s %s", id_tiny, chave)
+            continue
         except (TinyAPIError, TinySemRegistros, ValueError) as erro:
             logger.warning("  ! conta %s: %s", id_tiny, erro)
             erros += 1
