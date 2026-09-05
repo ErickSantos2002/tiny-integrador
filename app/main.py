@@ -34,6 +34,8 @@ app.include_router(endpoints.estoque)
 app.include_router(endpoints.contas_pagar)
 app.include_router(endpoints.contas_receber)
 app.include_router(endpoints.centro_custo)
+# saúde da ingestão: o DataCoreHS mostra aqui quando uma carga deu errado
+app.include_router(endpoints.operacao)
 
 # Health check
 @app.get("/")
