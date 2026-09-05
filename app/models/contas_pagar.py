@@ -40,3 +40,6 @@ class ContasPagar(Base):
     liquidacao = Column(Date, nullable=True)
     created_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, nullable=True)
+    # NULL = existe no Tiny. Preenchido = a origem responde "não localizada"
+    # (codigo_erro 32), quase sempre porque a conta atrasou e foi reemitida.
+    excluida_na_origem_em = Column(DateTime, nullable=True)
