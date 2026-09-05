@@ -32,7 +32,7 @@ def get_db():
 class AvisoCarga(BaseModel):
     job: str
     rotulo: str
-    estado: str            # ok | falha | inacabada | atrasada | sem_registro
+    estado: str            # ok | rodando | falha | inacabada | atrasada | sem_registro
     mensagem: str
     execucao_id: Optional[int] = None
     inicio: Optional[Any] = None
@@ -67,9 +67,12 @@ def avisos_das_cargas(
     """
     sql = "SELECT * FROM operacao.avisos_cargas"
     if apenas_problemas:
-        sql += " WHERE estado <> 'ok'"
+        # `rodando` fica de fora junto com `ok`: carga em andamento não é problema, e
+        # piscar aviso durante as 8h de um backfill treinaria qualquer um a ignorar a tela.
+        sql += " WHERE estado NOT IN ('ok', 'rodando')"
     sql += " ORDER BY CASE estado WHEN 'falha' THEN 1 WHEN 'atrasada' THEN 2 " \
-           "WHEN 'sem_registro' THEN 3 WHEN 'inacabada' THEN 4 ELSE 5 END, job"
+           "WHEN 'sem_registro' THEN 3 WHEN 'inacabada' THEN 4 " \
+           "WHEN 'rodando' THEN 5 ELSE 6 END, job"
     linhas = db.execute(text(sql)).mappings().all()
     return [AvisoCarga(**dict(linha)) for linha in linhas]
 
