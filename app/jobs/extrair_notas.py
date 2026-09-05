@@ -23,6 +23,7 @@ from datetime import date, timedelta
 
 from app.core.config import settings
 from app.models.database import SessionLocal
+from app.services.execucao import registrar_execucao
 from app.services.tiny_api import TinyAPI, TinyAPIError, TinySemRegistros, ESPERA_PADRAO
 from app.services.tiny_notas import salvar_nota
 
@@ -56,6 +57,16 @@ def main(argv=None) -> int:
     if not settings.TINY_TOKEN:
         logger.error("TINY_TOKEN não configurado — defina no .env ou no ambiente.")
         return 2
+
+    # O registro em `operacao.execucoes_job` é o que faz a falha chegar até alguém: o
+    # código de saída sozinho morre no journal da VPS. Ver migration 005.
+    with registrar_execucao("extrair_notas", " ".join(argv if argv is not None else sys.argv[1:])) as registro:
+        codigo = _carregar(args, registro)
+        registro.falhou = codigo != 0
+        return codigo
+
+
+def _carregar(args, registro) -> int:
 
     api = TinyAPI(settings.TINY_TOKEN, espera=args.espera)
 
@@ -110,6 +121,9 @@ def main(argv=None) -> int:
                 logger.info("  [%d/%d] %s", i, len(ids), contagem)
     finally:
         db.close()
+
+    registro.contagens = dict(contagem)
+    registro.erros = erros
 
     logger.info("== Resumo ==")
     for acao, quantas in sorted(contagem.items()):

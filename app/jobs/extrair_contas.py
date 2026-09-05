@@ -41,6 +41,7 @@ from datetime import date, timedelta
 
 from app.core.config import settings
 from app.models.database import SessionLocal
+from app.services.execucao import registrar_execucao
 from app.services.tiny_api import (ESPERA_PADRAO, TinyAPI, TinyAPIError,
                                    TinyNaoLocalizado, TinySemRegistros)
 from app.services.tiny_contas import CONFIG, marcar_excluida_na_origem, salvar_conta
@@ -149,21 +150,38 @@ def main(argv=None) -> int:
         logger.error("TINY_TOKEN não configurado — defina no .env ou no ambiente.")
         return 2
 
+    # O registro em `operacao.execucoes_job` é o que faz a falha chegar até alguém: o
+    # código de saída sozinho morre no journal da VPS. Ver migration 005.
+    with registrar_execucao("extrair_contas",
+                            " ".join(argv if argv is not None else sys.argv[1:])) as registro:
+        codigo = _carregar(args, registro)
+        registro.falhou = codigo != 0
+        return codigo
+
+
+def _carregar(args, registro) -> int:
     api = TinyAPI(settings.TINY_TOKEN, espera=args.espera)
     tipos = ["pagar", "receber"] if args.tipo == "ambos" else [args.tipo]
     total_erros = 0
+    tudo: dict[str, int] = {}
     db = SessionLocal()
     try:
         for tipo in tipos:
             logger.info("== Contas a %s%s ==", tipo, "  (DRY-RUN)" if args.dry_run else "")
             contagem, erros = processar(api, db, tipo, args)
             total_erros += erros
+            # as duas contas viram um resumo só, prefixado, senão "criada" de pagar e de
+            # receber se somariam e o histórico perderia de qual metade veio o volume
+            for acao, quantas in contagem.items():
+                tudo[f"{tipo}: {acao}"] = quantas
             for acao, quantas in sorted(contagem.items()):
                 logger.info("   %-20s %d", acao, quantas)
             if erros:
                 logger.warning("   %-20s %d", "erros", erros)
     finally:
         db.close()
+    registro.contagens = tudo
+    registro.erros = total_erros
     return 1 if total_erros else 0
 
 

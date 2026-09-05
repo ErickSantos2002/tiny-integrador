@@ -16,6 +16,7 @@ import sys
 
 from app.core.config import settings
 from app.models.database import SessionLocal
+from app.services.execucao import registrar_execucao
 from app.services.tiny_api import ESPERA_PADRAO, TinyAPI, TinyAPIError, TinySemRegistros
 from app.services.tiny_estoque import salvar_produto
 
@@ -40,6 +41,16 @@ def main(argv=None) -> int:
     if not settings.TINY_TOKEN:
         logger.error("TINY_TOKEN não configurado — defina no .env ou no ambiente.")
         return 2
+
+    # O registro em `operacao.execucoes_job` é o que faz a falha chegar até alguém: o
+    # código de saída sozinho morre no journal da VPS. Ver migration 005.
+    with registrar_execucao("extrair_estoque", " ".join(argv if argv is not None else sys.argv[1:])) as registro:
+        codigo = _carregar(args, registro)
+        registro.falhou = codigo != 0
+        return codigo
+
+
+def _carregar(args, registro) -> int:
 
     api = TinyAPI(settings.TINY_TOKEN, espera=args.espera)
     logger.info("== Estoque%s ==", "  (DRY-RUN, não escreve)" if args.dry_run else "")
@@ -81,6 +92,9 @@ def main(argv=None) -> int:
                 logger.info("  [%d/%d] %s", i, len(produtos), contagem)
     finally:
         db.close()
+
+    registro.contagens = dict(contagem)
+    registro.erros = erros
 
     logger.info("== Resumo ==")
     for acao, quantas in sorted(contagem.items()):
