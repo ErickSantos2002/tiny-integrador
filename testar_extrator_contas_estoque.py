@@ -194,14 +194,29 @@ def main():
     print("\n5c. Campo maior que a coluna não derruba a conta")
     # Em 2026-09-04 uma conta a receber de R$ 23.520 se perdeu porque o número do
     # endereço do cliente vinha como "NAO INFORMADO" — 13 caracteres num varchar(10).
+    # A migration 004 alargou a coluna para 60, então esse caso agora entra INTEIRO:
+    # é o conserto de verdade, e o truncamento voltou a ser a rede de segurança que
+    # nunca devia ter sido acionada por um texto tão banal.
     relato = salvar_conta(db, "receber", conta_exemplo(
         id="700000009",
         cliente={"nome": "ITUIUTABA BIOENERGIA LTDA.", "cpf_cnpj": "08164344000148",
                  "numero": "NAO INFORMADO", "tipo_pessoa": "J"}))
     salva = db.query(ContasReceber).filter(ContasReceber.id_tiny == 700000009).one_or_none()
     checa("a conta entrou apesar do campo grande", salva is not None, str(relato["acao"]))
-    checa("o campo foi truncado no limite da coluna",
-          salva is not None and salva.cliente_numero == "NAO INFORM", str(salva and salva.cliente_numero))
+    checa("e o valor entrou inteiro, sem corte",
+          salva is not None and salva.cliente_numero == "NAO INFORMADO",
+          str(salva and salva.cliente_numero))
+
+    # A rede de segurança continua lá para o caso extremo — o que ela não faz mais é
+    # mutilar texto de tamanho normal.
+    relato = salvar_conta(db, "receber", conta_exemplo(
+        id="700000010",
+        cliente={"nome": "CLIENTE DE ENDEREÇO ABSURDO", "cpf_cnpj": "08164344000149",
+                 "numero": "N" * 200, "tipo_pessoa": "J"}))
+    exagerada = db.query(ContasReceber).filter(ContasReceber.id_tiny == 700000010).one_or_none()
+    checa("valor absurdo ainda é cortado em vez de derrubar a conta",
+          exagerada is not None and exagerada.cliente_numero == "N" * 60,
+          str(exagerada and len(exagerada.cliente_numero or "")))
 
     print("\n5d. Conta que sumiu do Tiny é MARCADA, não contada como erro")
     # Confirmado com o financeiro em 2026-09-05: conta que atrasa é EXCLUÍDA no Tiny e

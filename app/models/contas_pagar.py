@@ -30,7 +30,8 @@ class ContasPagar(Base):
     cliente_fone = Column(String(40), nullable=True)
     cliente_email = Column(String(150), nullable=True)
     cliente_endereco = Column(String(150), nullable=True)
-    cliente_numero = Column(String(10), nullable=True)
+    # texto livre na origem ("SEM NUMERO", "NAO INFORMADO"): ver migration 004
+    cliente_numero = Column(String(60), nullable=True)
     cliente_complemento = Column(String(150), nullable=True)
     cliente_bairro = Column(String(100), nullable=True)
     cliente_cep = Column(String(10), nullable=True)

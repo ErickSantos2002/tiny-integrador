@@ -34,7 +34,8 @@ class ContasReceber(Base):
     cliente_ie = Column(String(500), nullable=True)
     cliente_rg = Column(String(500), nullable=True)
     cliente_endereco = Column(String(500), nullable=True)
-    cliente_numero = Column(String(10), nullable=True)
+    # texto livre na origem ("SEM NUMERO", "NAO INFORMADO"): ver migration 004
+    cliente_numero = Column(String(60), nullable=True)
     cliente_complemento = Column(String(500), nullable=True)
     cliente_bairro = Column(String(500), nullable=True)
     cliente_cep = Column(String(500), nullable=True)
