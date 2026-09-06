@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, Numeric, DateTime, SmallInteger, CHAR, BigInteger
+from sqlalchemy import text, Column, Integer, String, Date, Numeric, DateTime, SmallInteger, CHAR, BigInteger
 from app.models.database import Base
 
 
@@ -44,7 +44,12 @@ class ContasReceber(Base):
     cliente_pais = Column(String(500), nullable=True)
     cliente_fone = Column(String(500), nullable=True)
     cliente_email = Column(String(500), nullable=True)
-    created_at = Column(DateTime, nullable=True)
+    # O DEFAULT existe na tabela desde o n8n, mas o SQLAlchemy manda NULL explícito
+    # para coluna mapeada sem valor — e NULL explícito desliga o DEFAULT. Declarar o
+    # `server_default` aqui é o que faz o ORM OMITIR a coluna do INSERT e o banco
+    # carimbar a hora. Sem isso, 7.648 linhas do backfill de 2026-09-05 nasceram sem
+    # data de carga e cegaram o `freshness` do dbt (item 0.13 do roadmap).
+    created_at = Column(DateTime, nullable=True, server_default=text("CURRENT_TIMESTAMP"))
     updated_at = Column(DateTime, nullable=True)
     # NULL = existe no Tiny. Preenchido = a origem responde "não localizada"
     # (codigo_erro 32), quase sempre porque a conta atrasou e foi reemitida.

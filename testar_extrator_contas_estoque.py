@@ -281,6 +281,28 @@ def main():
     checa("volta a entrar na reconferência",
           "500000001" in ids_em_aberto_no_banco(db, "pagar"))
 
+    print("\n5f. Conta criada nasce com a data de carga carimbada pelo banco")
+    # O backfill de 2026-09-05 criou 7.648 linhas com `created_at` NULL: o SQLAlchemy
+    # manda NULL EXPLÍCITO para coluna mapeada sem valor, e NULL explícito desliga o
+    # `DEFAULT CURRENT_TIMESTAMP` que a tabela tem desde o n8n. O `freshness` do dbt lê
+    # `greatest(created_at, updated_at)` — sem isso, a maior carga da história da tabela
+    # é invisível e o alarme dispara com a ingestão saudável. Tirar o `server_default`
+    # do modelo faz este teste falhar.
+    relato = salvar_conta(db, "receber", conta_exemplo(id="700000999"))
+    nova = db.query(ContasReceber).filter(ContasReceber.id_tiny == 700000999).one()
+    checa("a conta foi criada", relato["acao"] == "criada", relato["acao"])
+    checa("created_at veio preenchido", nova.created_at is not None, str(nova.created_at))
+    # Comparar com o relógio do BANCO, não com o do Python: quem carimba é o Postgres,
+    # e os dois só coincidem quando estão no mesmo fuso (em produção ambos são UTC).
+    agora_no_banco = db.execute(text("select localtimestamp")).scalar()
+    checa("e é a hora de agora, não uma data qualquer",
+          nova.created_at is not None
+          and abs((agora_no_banco - nova.created_at).total_seconds()) < 300,
+          str(nova.created_at))
+    # updated_at continua NULL de propósito: linha nunca atualizada não tem o que datar.
+    checa("updated_at segue vazio até a primeira mudança de verdade",
+          nova.updated_at is None, str(nova.updated_at))
+
     print("\n6. Produto novo entra — inclusive o das páginas que o n8n não inseria")
     relato = salvar_produto(db, produto_exemplo(), saldo="7")
     produto = db.query(Estoque).filter(Estoque.id == 613852626).one_or_none()
