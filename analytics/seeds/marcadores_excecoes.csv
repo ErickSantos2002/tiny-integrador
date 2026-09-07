@@ -1,0 +1,5 @@
+descricao,conceito,exclui_do_faturamento,motivo
+n° da nf intilizada.,inutilizacao,true,"Erro de digitacao de inutilizada - o radical inutiliz nao pega intiliz. Decisao do Erick em 2026-09-05: erro de grafia entra na seed caso a caso, mesmo valendo R$ 0 hoje, para nao passar despercebido quando aparecer numa nota cara"
+carta de correcao,neutro,false,"O marcador MAIS COMUM da base (316 notas) e NAO e cancelamento - carta de correcao ajusta dado da nota, a venda continua valendo. Declarado aqui de proposito: e o falso positivo mais caro que existiria se alguem alargasse o radical"
+locacao,locacao,false,"Classifica linha de negocio, nao exclui. Locacao e linha propria (decisao D7) e continua sendo receita"
+cancelamento solicitado,ambiguo,false,"DECISAO DO DONO em 2026-09-05: deixar contando. Solicitado nao e efetivado, e o financeiro de hoje nao consegue confirmar notas antigas porque nao foi quem fez. O radical cancel pega esta grafia, entao a excecao e necessaria para NAO excluir. NF 005525 (24/04/2024)"

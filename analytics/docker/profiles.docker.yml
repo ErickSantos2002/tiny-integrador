@@ -1,0 +1,17 @@
+# Conexao do dbt dentro do container.
+# Nenhum valor mora aqui: tudo vem de variavel de ambiente definida no servico do EasyPanel.
+datacore:
+  target: prod
+  outputs:
+    prod:
+      type: postgres
+      host: "{{ env_var('DBT_HOST') }}"
+      port: "{{ env_var('DBT_PORT') | as_number }}"
+      user: "{{ env_var('DBT_USER') }}"
+      password: "{{ env_var('DBT_PASSWORD') }}"
+      dbname: "{{ env_var('DBT_DBNAME') }}"
+      # schema default `silver` de proposito: modelo que esquecer de declarar a camada
+      # cai na silver, nunca no gold que os dashboards leem.
+      schema: silver
+      threads: 4
+      sslmode: disable

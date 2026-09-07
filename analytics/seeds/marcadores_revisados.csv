@@ -1,0 +1,89 @@
+descricao,conceito,exclui_do_faturamento
+aguardando autorizacao para nova emissao,neutro,false
+aparelho devolvido dia 05/08/2025,devolucao,true
+aparelho devolvido dia 08/01/2025,devolucao,true
+aparelho devolvido dia 10/09/2025,devolucao,true
+aparelho devolvido dia 14/07/2025,devolucao,true
+aparelho devolvido dia 15/07,devolucao,true
+aparelho devolvido dia 19/05/2026,devolucao,true
+aparelho devolvido dia 22/08/2025,devolucao,true
+aparelho devolvido dia 24/11/2025,devolucao,true
+aparelho devolvido dia 26/03/2026,devolucao,true
+aparelho devolvido dia 27/05/2025,devolucao,true
+aparelho devolvido dia 27/12/2024,devolucao,true
+aparelho devolvido dia 28/05/2025,devolucao,true
+aparelho devolvido dia 28/07/2026,devolucao,true
+aparelho devolvido dia 31/03/2025,devolucao,true
+aparelho devolvido pelo cliente,devolucao,true
+aparelho susbstituido,neutro,false
+aparelho vendido nf 6721,neutro,false
+avariado,neutro,false
+cancelamento solicitado,cancelamento,true
+cancelar,cancelamento,true
+cancelar nota,cancelamento,true
+carta de correcao,neutro,false
+cartao de credito,neutro,false
+chave identificador,neutro,false
+cliente devolveu o produto,devolucao,true
+cliente nao quis o produto,recusa,true
+cliente solicitou divisao em duas notas,neutro,false
+compra em duplicidade,neutro,false
+criada nota de entrada 5745,neutro,false
+danfe 5190,neutro,false
+dar entrada da nf,neutro,false
+dar entrada na nf,neutro,false
+dar entrada na nota,neutro,false
+dar entrada nf dia 30/05,neutro,false
+dar entrada quando chegar,neutro,false
+devolucao do equipamento,devolucao,true
+devolvido um aparelho,devolucao,true
+emitir novamente 01/12,neutro,false
+emitir nova nota,neutro,false
+estornar nota de saida,neutro,false
+falta incluir serial dos equipamentos na carta de,neutro,false
+feita nf de devolucao,devolucao,true
+foi pago?,neutro,false
+inutilizada,inutilizacao,true
+locacao,locacao,false
+material devolvido,devolucao,true
+material devolvido 26/03,devolucao,true
+material devolvido dia 17/06,devolucao,true
+material incorreto,neutro,false
+modulo devolvido dia 06/10/2025,devolucao,true
+modulo enviado,neutro,false
+n° da nf intilizada.,inutilizacao,true
+nf5577,neutro,false
+nf cancelada,cancelamento,true
+nf contabilizada anteriormente,neutro,false
+nf de remessa relogio,neutro,false
+nf de transporte,neutro,false
+nf devolvida,devolucao,true
+nf divergente do pedido,neutro,false
+nf recusada,recusa,true
+nf recusada. cliente solicitou frete,recusa,true
+nf rejeitada,rejeicao,true
+nota de devolucao 86402,devolucao,true
+nota de entrada,neutro,false
+nota devolucao de mercadoria,devolucao,true
+nota recusada na sefaz,recusa,true
+nota rejeitada,rejeicao,true
+numero inutilizado,inutilizacao,true
+pago a menor,neutro,false
+pedido em duplicidade,neutro,false
+pessoa fisica contribuinte,neutro,false
++ phoebus link,neutro,false
+produto devolvido,devolucao,true
+produto devolvido emitir nova nota,devolucao,true
+produto devolvido pelo cliente,devolucao,true
+proposta 11858,neutro,false
+realizar estorno de contas,neutro,false
+reemitida nf 5782,neutro,false
+reemitir em 01/02,neutro,false
+reide - ato declaratorio,neutro,false
+rejeitada sefaz,rejeicao,true
+retornou dia 01/10,neutro,false
+retornou dia 03/11/2025,neutro,false
+retornou dia 17/04,neutro,false
+retornou dia 23/04,neutro,false
+sem chip,neutro,false
+solicitou nova aquisicao 30/11,neutro,false

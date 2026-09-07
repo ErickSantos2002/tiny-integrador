@@ -1,0 +1,31 @@
+# Reconciliação de tiny.marcadores contra a API do Tiny.
+#
+# Roda uma vez, em segundo plano, e sobrevive ao SSH cair: o processo é filho do
+# systemd, não do terminal. São ~8.156 notas a 3s cada (~7h), por isso o timeout
+# de início é desligado — senão o systemd mataria o serviço aos 90 segundos.
+#
+# Instalar:   cp backfill-marcadores.service /etc/systemd/system/ && systemctl daemon-reload
+# Rodar:      systemctl start backfill-marcadores
+# Acompanhar: journalctl -fu backfill-marcadores   (ou tail -f /opt/datacore-jobs/backfill.log)
+# Parar:      systemctl stop backfill-marcadores   (o relatório é retomável: roda de novo e continua)
+
+[Unit]
+Description=Reconciliacao de marcadores do Tiny (dry-run)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/datacore-jobs
+EnvironmentFile=/opt/datacore-jobs/env
+# Sem isto o Python segura a saída no buffer e o log fica vazio por horas —
+# o progresso só apareceria no fim, que é justamente quando não serve mais.
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/datacore-jobs/.venv/bin/python /opt/datacore-jobs/backfill_marcadores.py --saida /opt/datacore-jobs/relatorio-marcadores.jsonl
+StandardOutput=append:/opt/datacore-jobs/backfill.log
+StandardError=append:/opt/datacore-jobs/backfill.log
+TimeoutStartSec=0
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,335 @@
+version: 2
+
+# =============================================================================
+# FASE 3 — Declarar a bronze
+#
+# A bronze já existe: é o schema `tiny`. O trabalho aqui é DECLARÁ-LA, não
+# construí-la. Declarar dá três coisas de graça:
+#
+#   1. `{{ source() }}` em vez de `tiny.notas_fiscais` escrito na mão — o dbt
+#      passa a saber que a silver depende da origem, e isso aparece na linhagem;
+#   2. `dbt source freshness` — alarme para o dia em que a carga parar. Hoje
+#      essa falha é silenciosa do lado do dbt;
+#   3. testes na ENTRADA: o defeito é detectado onde nasce, não três models
+#      adiante, onde o sintoma não parece com a causa.
+#
+# ⚠️ REGRA 1 DO ROADMAP: o dbt LÊ daqui e NUNCA escreve. O dono desta bronze é
+# o `tiny-integrador` (era o n8n até 2026-09-04).
+# =============================================================================
+
+sources:
+  - name: tiny
+    schema: tiny
+    database: datacore-banco
+    description: >
+      Camada bronze — cópia do Tiny ERP mantida pelo `tiny-integrador`
+      (repositório separado, três timers systemd na VPS). Horários de carga,
+      em UTC: notas 04:00 e 15:00 · contas 10:00 · estoque 16:00.
+      NENHUM model do dbt escreve aqui.
+
+    # `freshness` responde a pergunta que teste nenhum responde: "o dado ainda
+    # está chegando?". Um `not_null` passa alegremente numa tabela congelada há
+    # três semanas.
+    #
+    # ⚠️ NÃO declarado aqui no nível do source, e isso é decisão, não esquecimento.
+    # Declarar aqui aplicaria a TODAS as tabelas, e a maioria não tem coluna de
+    # data nenhuma (`formas_envio`, `configuracoes`, `clientes`…) — o freshness
+    # simplesmente ERRA nelas. Fica por tabela, só onde existe coluna que sirva.
+    #
+    # ⚠️ E "coluna que sirva" é mais estreito do que parece: precisa refletir
+    # QUANDO A CARGA RODOU, não quando o fato aconteceu. `estoque.data_criacao` é
+    # a data em que o produto foi cadastrado no Tiny; uma carga perfeita rodando
+    # hoje sobre um catálogo estável marcaria "dado velho" e daria alarme falso.
+    # Por isso o estoque ficou de fora — ver a nota na tabela.
+    #
+    # A cobertura de verdade para "a carga parou" está FORA do dbt, em
+    # `operacao.avisos_cargas` (estado dos três timers, servido pela API do
+    # tiny-integrador). O freshness aqui é a segunda linha de defesa: pega o caso
+    # em que o job termina bem e mesmo assim não traz dado.
+
+    tables:
+
+      # ----------------------------------------------------------------- notas
+      - name: notas_fiscais
+        description: >
+          NF-e emitidas. É a tabela central do faturamento de produto.
+          Uma linha por nota.
+        # Mede QUANDO A CARGA RODOU, não quando a nota foi emitida. Emissão era o
+        # que existia antes de `operacao.execucoes_job` (item 0.12) — e media a
+        # coisa errada: entre 2024 e hoje houve 12 intervalos de mais de 4 dias sem
+        # emitir nota (o maior, 10 dias). Isso são 12 alarmes falsos e 1 ERROR falso
+        # com a ingestão perfeita. E era cego do outro lado: carga morta só apareceria
+        # 8 dias depois. Agora o alarme responde à pergunta certa e em horas.
+        # Timers: 04:00 e 15:00 UTC, duas cargas por dia.
+        loaded_at_query: "select coalesce(max(fim), timestamptz '1970-01-01') from operacao.execucoes_job where job = 'extrair_notas' and resultado = 'sucesso'"
+        freshness:
+          warn_after: {count: 26, period: hour}
+          error_after: {count: 2, period: day}
+        columns:
+          - name: id
+            description: Identificador do Tiny. Chave técnica.
+            data_tests: [unique, not_null]
+          - name: chave_acesso
+            description: >
+              Chave de acesso da NF-e (44 dígitos). É a CHAVE DE NEGÓCIO,
+              mas só existe para nota autorizada — 556 notas não têm.
+              Por isso o teste é `unique` sem `not_null`.
+            data_tests: [unique]
+          - name: descricao_situacao
+            description: >
+              ⚠️ É ESTA a coluna com o texto ("Emitida DANFE", "Cancelada").
+              A coluna `situacao` guarda o CÓDIGO numérico (7, 3, 8…).
+              Filtrar `situacao = 'Emitida DANFE'` devolve ZERO linhas sem
+              erro nenhum — armadilha que já custou uma investigação.
+          - name: observacoes
+            description: >
+              Campo livre, e o MAIS COMPLETO da tabela (8.176 de 8.198).
+              Guarda o que não tem campo estruturado: número de série
+              (`NS ABC123`), chave de acesso da nota de remessa que originou
+              um retorno, prazo de teste de demonstração, responsável.
+              Ver `docs/02-star-schema.md`.
+
+      - name: itens_nota
+        description: >
+          Itens das notas. É o GRÃO do futuro `fato_vendas` (decisão 2.4) e a
+          origem do CFOP, que é como se prova que uma nota é venda.
+        columns:
+          - name: id
+            data_tests: [unique, not_null]
+          - name: id_nota
+            description: FK para `notas_fiscais.id`.
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: source('tiny', 'notas_fiscais')
+                    field: id
+          - name: cfop
+            description: >
+              Código fiscal da operação. É por ele que a silver classifica
+              venda — não pela natureza de operação, que é texto livre.
+              2 nulos em 9.483 linhas, por isso `not_null` fica como `warn`.
+            data_tests:
+              - not_null:
+                  config:
+                    severity: warn
+
+      - name: marcadores
+        description: >
+          Marcadores da nota (1:N). É por aqui que cancelamento, devolução e
+          recusa chegam — e o texto é LIVRE, digitado por pessoas.
+          ⚠️ Histórico: até 2026-09-04 o n8n perdia marcador de nota com 2 ou
+          mais, e nunca atualizava marcador posto depois da carga. Corrigido, e
+          o backfill trouxe 531 notas marcadas contra 446 antes.
+        columns:
+          - name: id
+            data_tests: [unique, not_null]
+          - name: id_nota
+            description: >
+              FK para `notas_fiscais.id`. O `not_null` aqui não é decorativo:
+              a régua de faturamento em produção usa `NOT IN (subquery)` sobre
+              esta coluna, e um único NULL faria a condição inteira virar NULL,
+              descartando TODAS as notas (defeito D6). Hoje são 0 nulos — este
+              teste é o que garante que continue assim.
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: source('tiny', 'notas_fiscais')
+                    field: id
+
+      - name: enderecos_entrega
+        description: Endereço de entrega da nota. Relação 1:1 — será achatado na silver (4.7).
+        columns:
+          - name: id
+            data_tests: [unique, not_null]
+          - name: id_nota
+            data_tests:
+              - relationships:
+                  arguments:
+                    to: source('tiny', 'notas_fiscais')
+                    field: id
+
+      - name: formas_envio
+        description: Forma de envio da nota. Relação 1:1 — será achatada na silver (4.7).
+        columns:
+          - name: id
+            data_tests: [unique, not_null]
+
+      # --------------------------------------------------------------- pessoas
+      - name: clientes
+        description: >
+          Clientes vindos das NF-e. ⚠️ NÃO é o universo de clientes da empresa:
+          119 tomadores de NFS-e não estão aqui (quem só comprou serviço).
+          A `dim_cliente` é a união das três fontes — ver `02-matriz-barramento.md`.
+          🔒 Contém PII (CPF, nome, e-mail, telefone). Regra 6: não sai do servidor.
+        columns:
+          - name: id
+            data_tests: [unique, not_null]
+          - name: cpf_cnpj
+            description: >
+              CHAVE DE NEGÓCIO depois de normalizada (só dígitos). Vem com
+              máscara inconsistente, o que gera ~20 duplicados — item 4.3.
+              🔒 CPF de pessoa física é dado pessoal (LGPD); CNPJ não é.
+
+      # ------------------------------------------------------------- serviços
+      - name: servicos
+        description: >
+          NFS-e (nota de serviço). Régua totalmente diferente da NF-e: não tem
+          CFOP, não tem situação, não tem marcador. Aqui está o faturamento de
+          calibração e da Plataforma (SaaS).
+          ⚠️ NÃO tem `id_cliente` — só o CPF/CNPJ do tomador em texto.
+        # ÚNICA fonte que ainda mede pelo FATO (data de emissão) e não pela carga:
+        # a importação de NFS-e não passa por `operacao.execucoes_job`, então não há
+        # execução a consultar. Medido em 2026-09-06 e o risco é baixo: desde 2024 houve
+        # 1 intervalo acima de 10 dias sem emitir (o maior, 16) e nenhum acima de 20 —
+        # 1 alarme falso em 20 meses, que a folga absorve. Quando a importação virar job
+        # registrado, migrar para `loaded_at_query` como as outras três.
+        loaded_at_field: "\"data_da_emissão_nfs_e_dsr_e\"::timestamp"
+        freshness:
+          warn_after: {count: 10, period: day}
+          error_after: {count: 20, period: day}
+        columns:
+          - name: id
+            data_tests: [unique, not_null]
+          - name: cancelada
+            description: >
+              ⚠️ CURADORIA MANUAL, não vem da origem. O leiaute nacional entrega
+              cancelamento como Evento separado, ainda não tratado na importação.
+              Toda NFS-e cancelada que ninguém marcou conta como faturamento
+              hoje, e o tamanho disso não é mensurável pelo banco (defeito D11).
+          - name: "código_de_atividade_municipal"
+            description: >
+              Candidato a separar as LINHAS DE SERVIÇO (defeito D10). Códigos
+              62* (TI) concentram o maior valor e parecem ser a Plataforma; 33*
+              parecem calibração. ⚠️ Hipótese, não verificação: `501` e `119904`
+              não são CNAE e precisam ser confirmados com quem emite.
+              ⚠️ O mesmo código aparece como `3312102` e `3312102.0`. Corrigido em
+              2026-09-06: **a coluna é `numeric`** e o texto mostra a escala do tipo —
+              não é float na importação, não há nada a consertar na carga. O cast e o
+              `split_part` ficam em `stg_servicos`.
+
+      # ------------------------------------------------------------ financeiro
+      - name: contas_receber
+        description: >
+          Contas a receber. O histórico foi recuperado pelo backfill de 2026-09-06
+          (item 0.13 do roadmap): 1.606 → 9.048 linhas, série completa **desde 2018**.
+          O item 0.15 fechou a ponta que faltava: 9.634 linhas, **desde 2015**, que é
+          onde a origem começa (perguntado à API ano a ano: nada antes de 2015).
+          O fluxo do n8n nunca funcionou aqui — 1.516 das 1.606 linhas antigas eram
+          de 2026. ⚠️ Como tudo entrou de uma vez, `created_at` diz quando a linha
+          chegou ao banco, não quando o fato aconteceu: para série temporal use
+          `vencimento` ou `data`, nunca a data de carga.
+        # Mede quando a carga rodou (item 0.12), não quando um dado mudou. O
+        # `greatest(created_at, updated_at)` só se movia quando ALGO mudava — num
+        # feriado prolongado com a carga perfeita ele parava, e por isso precisava de
+        # folga de 4 a 9 dias, que é o mesmo que não ter alarme. Pior: em 2026-09-06
+        # descobrimos que nem criação movia o campo (created_at nascia NULL), então
+        # o maior carregamento da história da tabela foi invisível. Timer: 10:00 UTC.
+        loaded_at_query: "select coalesce(max(fim), timestamptz '1970-01-01') from operacao.execucoes_job where job = 'extrair_contas' and resultado = 'sucesso'"
+        freshness:
+          warn_after: {count: 2, period: day}
+          error_after: {count: 3, period: day}
+        columns:
+          - name: id
+            data_tests: [unique, not_null]
+          - name: id_tiny
+            data_tests: [unique, not_null]
+          - name: excluida_na_origem_em
+            description: >
+              Preenchido = o Tiny não reconhece mais esta conta. O financeiro
+              exclui conta atrasada e reemite com id novo. NÃO somar essas
+              linhas em "em aberto" — eram 41 em 2026-09-05.
+
+      - name: contas_pagar
+        description: >
+          Contas a pagar. ⚠️ As colunas se chamam `cliente_*` mas o papel ali é
+          de FORNECEDOR. Não juntar com `clientes` na mesma dimensão sem um
+          atributo que distinga — senão fornecedor vira cliente no relatório.
+        # Mede quando a carga rodou (item 0.12), não quando um dado mudou. O
+        # `greatest(created_at, updated_at)` só se movia quando ALGO mudava — num
+        # feriado prolongado com a carga perfeita ele parava, e por isso precisava de
+        # folga de 4 a 9 dias, que é o mesmo que não ter alarme. Pior: em 2026-09-06
+        # descobrimos que nem criação movia o campo (created_at nascia NULL), então
+        # o maior carregamento da história da tabela foi invisível. Timer: 10:00 UTC.
+        loaded_at_query: "select coalesce(max(fim), timestamptz '1970-01-01') from operacao.execucoes_job where job = 'extrair_contas' and resultado = 'sucesso'"
+        freshness:
+          warn_after: {count: 2, period: day}
+          error_after: {count: 3, period: day}
+        columns:
+          - name: id
+            data_tests: [unique, not_null]
+          - name: id_tiny
+            data_tests: [unique, not_null]
+          - name: excluida_na_origem_em
+            description: >
+              Mesmo significado do que há em `contas_receber`. Eram 226 contas
+              em 2026-09-05 — quase todo o "em aberto" do banco.
+
+      # -------------------------------------------------------------- produtos
+      - name: estoque
+        description: >
+          Produtos e saldo. ⚠️ Passou a existir de verdade com a virada da
+          ingestão: é a BASE da futura `dim_produto` (95% dos itens de nota
+          casam por `id_produto`), derrubando a premissa do item 5.3, que
+          dizia não haver tabela de produto no Tiny.
+          É um SNAPSHOT: `saldo` é o de hoje, não tem histórico.
+          ⚠️ SEM `freshness`, de propósito: a única coluna de data é
+          `data_criacao`, que é quando o PRODUTO foi cadastrado no Tiny — não
+          quando a carga rodou. Um catálogo estável (é o caso: 279 produtos,
+          todos "inalterado" na última carga) marcaria dado velho todo dia,
+          com a carga funcionando perfeitamente. Testado em 2026-09-05: dava
+          `ERROR STALE`. Quem vigia esta carga é `operacao.avisos_cargas`.
+        columns:
+          - name: id
+            data_tests: [unique, not_null]
+          - name: codigo
+            description: Chave de negócio do produto — 270/270 distintos na Fase 1.
+            data_tests:
+              - unique:
+                  config:
+                    severity: warn
+
+      # --------------------------------------------------------- configuração
+      - name: centro_custo_config
+        description: >
+          Configuração de centro de custo por produto e ano.
+          ⚠️ `produto` é NOME LIVRE, não código — casa por texto, o que é
+          frágil. Candidato a virar seed (item 4.9).
+        columns:
+          - name: id
+            data_tests: [unique, not_null]
+
+      - name: configuracoes
+        description: Configurações gerais da aplicação. Não entra em modelo analítico.
+        columns:
+          - name: id
+            data_tests: [unique, not_null]
+
+# =============================================================================
+# NÃO declarada de propósito:
+#
+#   `_lixo_servicos_tiny_2026_08_23` — tabela de descarte de uma carga antiga.
+#   O nome diz o que é. Declarar daria a ela um status que ela não tem, e
+#   `dbt docs` passaria a exibi-la como se fosse fonte legítima.
+# =============================================================================
+
+  # ================================================================= operação
+  - name: operacao
+    schema: operacao
+    description: >
+      Registro de execuções das cargas (item 0.12). É a única fonte que sabe QUANDO cada
+      carga rodou e QUANTO trouxe — e por isso sustenta tanto o `freshness` (0.14) quanto
+      o monitor de volume (6.4).
+    tables:
+      - name: execucoes_job
+        description: >
+          Uma linha por execução. `contagens` é JSON e o formato varia por job
+          (`{"inalterada": 53}`, `{"receber: criada": 586, ...}`), então volume é a SOMA
+          dos valores, não uma chave fixa.
+          ⚠️ **Registra dry-run também.** Em 2026-09-06, 11 das 20 linhas eram dry-run de
+          investigação — 58% do histórico. Quem for medir volume PRECISA filtrar por
+          `argumentos`, senão compara carga real com teste de 1 registro.
+        columns:
+          - name: id
+            data_tests: [unique, not_null]

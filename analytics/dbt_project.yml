@@ -1,0 +1,37 @@
+name: 'datacore'
+version: '1.0.0'
+
+# aponta pro profile 'datacore' em ~/.dbt/profiles.yml
+profile: 'datacore'
+
+model-paths:    ["models"]
+macro-paths:    ["macros"]
+seed-paths:     ["seeds"]
+snapshot-paths: ["snapshots"]
+test-paths:     ["tests"]
+analysis-paths: ["analyses"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  datacore:
+    # silver = view por padrao: barata de reconstruir, sempre fresca.
+    # Vira table so onde a performance pedir.
+    silver:
+      +schema: silver
+      +materialized: view
+    # gold = table: e o que dashboard e agente de IA consultam,
+    # tem que responder rapido.
+    gold:
+      +schema: gold
+      +materialized: table
+
+seeds:
+  datacore:
+    +schema: silver
+
+snapshots:
+  datacore:
+    +schema: snapshots

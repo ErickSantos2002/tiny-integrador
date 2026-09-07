@@ -1,0 +1,7 @@
+# Ambiente do projeto. Reproduza com:
+#   python -m venv .venv
+#   .venv/bin/pip install -r requirements.txt
+#
+# Versao fixada de proposito: `dbt run` tem que produzir o mesmo resultado
+# daqui a um ano. dbt-core e psycopg2-binary vem como dependencia.
+dbt-postgres==1.11.0

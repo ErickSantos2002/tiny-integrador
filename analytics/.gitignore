@@ -1,0 +1,56 @@
+# ---------------------------------------------------------------
+# Segredos — NUNCA versionar
+# ---------------------------------------------------------------
+# O profiles.yml guarda host, usuario e senha do banco.
+# Ele mora em ~/.dbt/profiles.yml, fora daqui — mas se um dia
+# aparecer uma copia no projeto, ela nao entra no Git.
+profiles.yml
+.env
+*.env
+!.env.example
+*.pem
+*.key
+
+# ---------------------------------------------------------------
+# Dados — o banco tem PII (CPF, nome, email de clientes).
+# Nenhum dump, CSV exportado ou extracao entra no repositorio.
+# ---------------------------------------------------------------
+*.dump
+*.sql.gz
+*.backup
+/dados/
+/extracoes/
+
+# ---------------------------------------------------------------
+# dbt — tudo aqui e gerado a cada `dbt run`, nao e codigo-fonte
+# ---------------------------------------------------------------
+target/
+dbt_packages/
+logs/
+.user.yml
+
+# ---------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# ---------------------------------------------------------------
+# Editor / sistema
+# ---------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+
+# ---------------------------------------------------------------
+# Dumps do banco: NUNCA versionar
+# ---------------------------------------------------------------
+# `backups/` guarda pg_dump da produção antes de cada escrita. Um dump de
+# tiny.contas_receber carrega nome, CPF/CNPJ, endereço, e-mail e telefone de
+# ~9 mil clientes. Em 2026-09-06 quase entrou num commit por descuido — a
+# regra vira arquivo para não depender de ninguém lembrar.
+backups/
+*.sql.gz
+*.dump

@@ -1,0 +1,331 @@
+version: 2
+
+models:
+
+  - name: dim_tempo
+    description: >
+      Dimensão de tempo gerada (5.1), de 2015 a 2030 — 5.844 dias. Gerada e não extraída
+      porque dimensão tirada dos fatos só tem os dias em que houve movimento: o mês sem
+      venda some do gráfico em vez de aparecer como zero. Feriado móvel é CALCULADO a
+      partir da Páscoa, não listado à mão.
+    columns:
+      - name: data
+        description: A chave da dimensão. Um dia, uma linha, sem buraco.
+        data_tests: [unique, not_null]
+      - name: dia_util
+        description: >
+          Não é fim de semana e não é feriado. É o que a operação pergunta de verdade
+          quando calcula prazo de entrega ou dias de atraso.
+        data_tests: [not_null]
+      - name: dia_da_semana
+        description: >
+          ISO: 1 = segunda … 7 = domingo. Explícito porque o `dow` do Postgres começa no
+          domingo com 0, e trocar os dois inverte a noção de fim de semana.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5, 6, 7]
+      - name: trimestre
+        description: >
+          1 a 4, do calendário civil. A empresa não usa trimestre fiscal deslocado.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4]
+      - name: e_feriado
+        description: >
+          Feriado de verdade — nacional, estadual de PE ou municipal do Recife. NÃO inclui ponto facultativo.
+        data_tests: [not_null]
+      - name: dia_util_operacional
+        description: >
+          Além de feriado e fim de semana, desconta PONTO FACULTATIVO (Carnaval, Corpus
+          Christi). Carnaval e Corpus Christi não são feriado — nem nacional, nem
+          municipal no Recife —, mas a cidade para. Empresa privada não é obrigada a
+          liberar, então quem consome escolhe entre esta coluna e `dia_util`.
+        data_tests: [not_null]
+      - name: e_ponto_facultativo
+        description: >
+          Carnaval e Corpus Christi. Serviço público para, empresa privada decide — por isso é coluna separada de `e_feriado`.
+        data_tests: [not_null]
+      - name: feriado
+        description: >
+          Nome do feriado, ou nulo. Inclui os municipais do Recife (Lei 9.777/1967):
+          Sexta-feira Santa, 24/06 São João, 16/07 Nossa Senhora do Carmo (padroeira) e
+          08/12 Nossa Senhora da Conceição.
+
+  - name: dim_cliente
+    description: >
+      Dimensão de cliente CONFORME (5.2): a união do cadastro do ERP com os tomadores de
+      NFS-e e os sacados de contas. 2.214 identidades, das quais 151 não existem no ERP —
+      é o que torna possível perguntar "quanto este cliente comprou de tudo e quanto já
+      pagou" sem que 2,8% do faturamento caia em "cliente desconhecido".
+      🔒 Concentra PII (documento, nome). Telefone e e-mail ficaram DE FORA de propósito:
+      PII de contato sem uso analítico. ⚠️ Falta o acesso restrito por `grants` — depende
+      de criar uma role de analista no banco.
+    columns:
+      - name: sk_cliente
+        description: >
+          Surrogate key = `md5(chave_cliente)`. Determinística de propósito: `row_number()`
+          mudaria a cada build e quebraria fato já gravado com a chave antiga.
+        data_tests: [unique, not_null]
+      - name: chave_cliente
+        description: A chave de negócio — documento em dígitos, ou `sem-documento:<sistema>:<id>`.
+        data_tests: [unique, not_null]
+      - name: procedencia
+        description: De onde esta identidade é conhecida. Rótulo pronto para gráfico.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['cadastrado no ERP', 'so em NFS-e', 'so em contas',
+                         'so em NFS-e e contas']
+      - name: tipo_documento
+        description: >
+          cpf ou cnpj, derivado do TAMANHO do documento — não do campo `tipo_pessoa`, que é digitado e pode divergir.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['cpf', 'cnpj']
+      - name: existe_no_erp
+        description: >
+          Falso para as 151 identidades que só aparecem em NFS-e ou contas. É o que impede a dimensão de ser uma cópia de `tiny.clientes`.
+        data_tests: [not_null]
+
+  - name: dim_produto
+    description: >
+      Dimensão de produto (5.3): o cadastro de `tiny.estoque` (280) mais os produtos
+      ÓRFÃOS que só aparecem em nota (15). Os órfãos não são resíduo — carregam
+      perto de 19% do faturamento; uma dimensão só do cadastro deixaria
+      esse valor em "produto desconhecido". Na direção oposta, 115 produtos em catálogo
+      nunca vendidos entram assim mesmo: produto existe sem ter saído.
+      ⚠️ Tipo 1 hoje — o SCD2 é o item 5.4, e o alerta de lá é literal.
+    columns:
+      - name: sk_produto
+        description: >
+          `md5(id_produto)`. Determinística: `row_number()` mudaria a cada build e quebraria fato já gravado.
+        data_tests: [unique, not_null]
+      - name: id_produto
+        description: >
+          A chave de negócio. `id_produto` e não `codigo`: por id casam 95,1% dos itens,
+          por código só 55,5%.
+        data_tests: [unique, not_null]
+      - name: procedencia
+        description: >
+          Se veio do cadastro, se é órfão (vendido sem cadastro) ou os dois. Sem isso, 'produto sem preço de custo' parece defeito quando é só órfão.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['cadastrado e vendido', 'em catalogo, nunca vendido',
+                         'orfao: vendido sem cadastro']
+      - name: situacao
+        description: >
+          A = ativo, I = inativo, no cadastro do Tiny. NULO em órfão — que não é "situação
+          desconhecida", é ausência de cadastro. As duas se parecem num filtro descuidado.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['A', 'I']
+
+  - name: dim_vendedor
+    description: >
+      Vendedor (5.5), Tipo 1, só existe em NF-e. 🔴 74,1% do faturamento
+      NÃO tem vendedor atribuído — a pergunta "faturamento por vendedor"
+      é respondível sobre um quarto do faturamento, e quem olhar sem esse aviso conclui que
+      a equipe vende muito menos do que vende. `id_vendedor = 0` não é vendedor: é "sem
+      atribuição" gravado como número, em 6.946 notas.
+    columns:
+      - name: sk_vendedor
+        description: >
+          `md5(id_vendedor)`. O membro 'não informado' tem chave própria e estável.
+        data_tests: [unique, not_null]
+      - name: id_vendedor
+        description: >
+          Id do Tiny, ou o literal `nao-informado`. ⚠️ O id 0 da origem NÃO entra aqui: é 'sem atribuição' gravado como número, em 6.946 notas.
+        data_tests: [unique, not_null]
+      - name: nome
+        description: >
+          Nome normalizado. Os 7 vendedores reais têm id e nome estáveis — nenhum id com dois nomes.
+        data_tests: [not_null]
+      - name: vendedor_identificado
+        description: Falso apenas no membro "sem vendedor atribuido", que faz o total fechar.
+        data_tests: [not_null]
+
+  - name: dim_geografia
+    description: >
+      Geografia (5.6) — conforme, serve aos três fatos. Chave é o par cidade+UF: 9 nomes de
+      cidade aparecem em mais de uma UF. Região é `CASE` e não seed porque a divisão do IBGE
+      é fato objetivo. ⚠️ `EX` não é UF: é o código fiscal de exterior, e vira
+      `regiao = 'exterior'` em vez de ser diluído numa região brasileira (decisão D2).
+    columns:
+      - name: sk_geografia
+        description: >
+          `md5(cidade|uf)`. O par, não a cidade sozinha: 9 nomes de cidade se repetem em UFs diferentes.
+        data_tests: [unique, not_null]
+      - name: regiao
+        description: >
+          NULO aqui significaria UF que o `CASE` não conhece — por isso `not_null` é
+          `error`: é assim que uma UF nova (ou um lixo de duas letras) aparece, em vez de
+          sumir num grupo vazio.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['norte', 'nordeste', 'centro-oeste', 'sudeste', 'sul',
+                         'exterior', 'nao informada']
+      - name: e_pernambuco
+        description: >
+          A praça da casa. A H&S é de Recife, e 'quanto vendemos fora do estado' é a primeira pergunta diante de um mapa.
+        data_tests: [not_null]
+      - name: e_exterior
+        description: >
+          UF `EX`. Exportação conta como venda, mas MARCADA (decisão D2) — nunca diluída numa região brasileira.
+        data_tests: [not_null]
+
+  - name: fato_vendas
+    description: >
+      O fato central (5.7), grão de ITEM DA NOTA. Não decide o que é venda — quem decide é
+      `silver.vendas` (4.6). Aqui só se troca chave natural por chave de dimensão.
+      ⚠️ `valor_nota_cheio` NÃO existe aqui de propósito: é o valor da nota repetido em cada
+      item, e somá-lo inflaria o faturamento em 28%.
+    columns:
+      - name: sk_venda_item
+        description: O item da nota — o grão.
+        data_tests: [unique, not_null]
+      - name: sk_cliente
+        description: >
+          Chega pelo `de_para_clientes`, não direto: as 34 notas dos cadastros duplicados apontam para ids que a dimensão não reconhece mais.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_cliente')
+                field: sk_cliente
+      - name: sk_produto
+        description: >
+          `not_null` sem exceção: os 2 itens sem `id_produto` da origem não chegam aqui
+          porque não são venda. Se um dia chegarem, isto acusa.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_produto')
+                field: sk_produto
+      - name: sk_geografia
+        description: >
+          Praça do cliente. 5 itens caem no membro 'não informada' (cliente sem cidade ou sem UF).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_geografia')
+                field: sk_geografia
+      - name: sk_vendedor
+        description: >
+          74,1% do faturamento cai no membro 'sem vendedor atribuído' — não é defeito do fato, é ausência na origem.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_vendedor')
+                field: sk_vendedor
+      - name: data_venda
+        description: Liga em `dim_tempo.data`. As 22 notas sem data não são venda e não chegam aqui.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_tempo')
+                field: data
+      - name: mercado
+        description: >
+          `interno` ou `externo`. Exportação (CFOP 7xxx) entra como venda, marcada (D2).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['interno', 'externo']
+
+  - name: fato_contas_receber
+    description: >
+      O segundo fato (5.8), grão de CONTA. Existe para provar o drill across: compartilha
+      `dim_cliente` e `dim_geografia` com o `fato_vendas`, então "quanto este cliente
+      comprou e quanto já pagou" vira uma consulta. ⚠️ NÃO somar com `fato_vendas` numa
+      tabela só — grãos diferentes dupla-contariam faturamento.
+    columns:
+      - name: sk_conta
+        description: >
+          O grão: uma linha por conta. NÃO é o grão da nota — uma venda vira várias parcelas.
+        data_tests: [unique, not_null]
+      - name: id_tiny
+        description: >
+          Id da conta na origem. ⚠️ Muda quando o financeiro exclui a conta vencida e reemite (ver `excluida_na_origem`).
+        data_tests: [unique, not_null]
+      - name: sk_cliente
+        description: >
+          A MESMA chave do `fato_vendas`. As 197 contas sem documento do sacado caem no
+          membro "não informado" da dimensão, não em NULL.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_cliente')
+                field: sk_cliente
+      - name: sk_geografia
+        description: >
+          Praça do sacado. As contas sem documento caem no membro 'não informada'.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_geografia')
+                field: sk_geografia
+      - name: data_vencimento
+        description: Um dos três papéis da dim_tempo (emissão, vencimento, liquidação).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_tempo')
+                field: data
+      - name: data_emissao
+        description: >
+          Um dos três papéis da `dim_tempo`. Responde 'quanto faturei no período' — diferente de vencimento e de liquidação.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_tempo')
+                field: data
+      - name: em_aberto
+        description: >
+          Situação `aberto` E não excluída na origem. As 41 excluídas são
+          dívida que não existe mais — somá-las em "em aberto" infla o passivo.
+        data_tests: [not_null]
+      - name: situacao
+        description: >
+          Estado na origem. ⚠️ `cancelada` aqui é situação da CONTA, não da nota fiscal.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['aberto', 'pago', 'parcial', 'cancelada']
+
+  - name: monitor_volume_carga
+    description: >
+      Monitor de volume (6.4): compara o volume de cada carga com a mediana das execuções
+      do mesmo job no mesmo dia da semana. Pega o defeito que termina em sucesso — "hoje
+      chegaram 3 notas em vez de 300" —, que nem teste nem `freshness` detectam.
+      ⚠️ Filtra dry-run: 11 das 20 execuções registradas em 2026-09-06 eram teste de
+      investigação. ⚠️ Com histórico curto devolve `sem base de comparacao` em vez de
+      julgar — monitor que erra no começo é desligado antes de ficar útil.
+    columns:
+      - name: id
+        description: >
+          Id da execução em `operacao.execucoes_job`.
+        data_tests: [unique, not_null]
+      - name: veredito
+        description: >
+          O julgamento. ⚠️ `sem base de comparacao` NÃO é `ok`: significa histórico curto demais para julgar.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['ok', 'sem base de comparacao', 'volume abaixo do normal',
+                         'volume MUITO abaixo do normal', 'volume muito acima do normal']

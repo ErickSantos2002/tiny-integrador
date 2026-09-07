@@ -1,0 +1,263 @@
+version: 2
+
+models:
+
+  - name: stg_clientes
+    description: >
+      Cadastro de clientes do ERP, tipado e com o documento em dígitos (4.3).
+      Uma linha por CADASTRO — ainda com os 20 documentos repetidos. Quem resolve
+      identidade é `clientes`. 🔒 Contém PII: documento, nome, e-mail, telefone.
+    columns:
+      - name: id
+        description: Id do cadastro no Tiny. Chave técnica, não de negócio.
+        data_tests: [unique, not_null]
+
+  - name: clientes
+    description: >
+      Cliente único por documento (4.4), com a proveniência pronta para a união da
+      `dim_cliente` (4.5). Uma linha por IDENTIDADE: 2.063 contra 2.083 cadastros.
+      🔒 Contém PII.
+    columns:
+      - name: chave_cliente
+        description: >
+          A chave de negócio: o documento em dígitos, ou `sem-documento:<sistema>:<id>`
+          para quem não tem. É por ela que NFS-e e contas encontram seu cliente, já que
+          essas fontes não têm `id_cliente` — só o documento em texto.
+        data_tests: [unique, not_null]
+      - name: id_canonico
+        description: O maior id do grupo — o cadastro mais recente do Tiny.
+        data_tests: [unique, not_null]
+      - name: sistema_origem
+        description: >
+          De onde a identidade veio. Hoje só `tiny_erp`; existe para que a entrada do
+          CRM (GrowthHS) não exija reescrever o modelo.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['tiny_erp']
+      - name: qtd_cadastros
+        description: Quantos cadastros do ERP foram fundidos nesta identidade (1 ou 2 hoje).
+        data_tests: [not_null]
+      - name: tipo_documento
+        description: Derivado do TAMANHO do documento, não do campo digitado `tipo_pessoa`.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['cpf', 'cnpj']
+
+  - name: de_para_clientes
+    description: >
+      Ponte id do cadastro → identidade canônica. Existe porque em 19 dos 20 documentos
+      duplicados os DOIS cadastros têm nota: sem esta ponte, 34 notas apontariam para um
+      id que a silver não reconhece mais, e o cliente sumiria da análise sem erro nenhum.
+    columns:
+      - name: id_cadastro
+        description: Id como está gravado em `notas_fiscais.id_cliente`.
+        data_tests: [unique, not_null]
+      - name: chave_cliente
+        description: A identidade para a qual esse cadastro aponta.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('clientes')
+                field: chave_cliente
+
+  - name: stg_servicos
+    description: >
+      NFS-e tipada, com o tomador identificável pelo documento (4.1 e 4.8). Era uma das
+      duas ilhas da 1.4: a tabela não tem `id_cliente`. Todos os valores chegam como
+      `text` na origem e o cast está concentrado aqui.
+    columns:
+      - name: id
+        description: >
+          Id da NFS-e na origem.
+        data_tests: [unique, not_null]
+      - name: documento_tomador
+        description: >
+          CPF/CNPJ do tomador em dígitos — é a mesma chave de `clientes.chave_cliente`,
+          e é ela que permite somar produto e serviço do mesmo cliente (pergunta da 1.7).
+        data_tests:
+          # Aponta para `dim_cliente`, não para `clientes`: a integridade certa é contra a
+          # dimensão CONFORME, que é a união das três fontes. Contra o cadastro do ERP
+          # sozinho isto acusava 240/260 linhas (item 4.8) — e a lacuna não era defeito
+          # desta tabela, era a dimensão que ainda não existia. Com a 5.2 no lugar, o teste
+          # passa a valer como `error`: linha que não encontra cliente agora É defeito.
+          - relationships:
+              arguments:
+                to: ref('dim_cliente')
+                field: chave_cliente
+              config:
+                where: "documento_tomador is not null"
+
+  - name: stg_contas_receber
+    description: >
+      Contas a receber tipadas, com o sacado identificável (4.1 e 4.8). A outra ilha.
+      ⚠️ Série só confiável a partir de 2026-09-06: antes do backfill eram 1.606 linhas,
+      1.516 delas de 2026. Hoje são 9.634, desde 2015.
+    columns:
+      - name: id
+        description: >
+          Chave técnica da linha no banco.
+        data_tests: [unique, not_null]
+      - name: id_tiny
+        description: >
+          Id na origem — a chave de negócio da conta.
+        data_tests: [unique, not_null]
+      - name: documento_sacado
+        description: >
+          CPF/CNPJ do sacado em dígitos, a mesma chave de `clientes.chave_cliente`.
+        data_tests:
+          # Aponta para `dim_cliente`, não para `clientes`: a integridade certa é contra a
+          # dimensão CONFORME, que é a união das três fontes. Contra o cadastro do ERP
+          # sozinho isto acusava 240/260 linhas (item 4.8) — e a lacuna não era defeito
+          # desta tabela, era a dimensão que ainda não existia. Com a 5.2 no lugar, o teste
+          # passa a valer como `error`: linha que não encontra cliente agora É defeito.
+          - relationships:
+              arguments:
+                to: ref('dim_cliente')
+                field: chave_cliente
+              config:
+                where: "documento_sacado is not null"
+
+  - name: notas
+    description: >
+      A nota fiscal achatada (4.7): uma linha por nota, com endereço de entrega, forma de
+      envio e os marcadores AGREGADOS. Endereço e forma são 1:1 verificados; marcador não
+      é (43 notas têm mais de um, até 3), por isso entra por `string_agg`/`bool_or` e não
+      por join. Grão de item continua sendo `vendas`.
+    columns:
+      - name: id
+        description: Id da nota no Tiny.
+        data_tests: [unique, not_null]
+      - name: tem_marcador_que_exclui
+        description: >
+          A nota tem ao menos um marcador que a régua exclui do faturamento (D8). É a
+          pergunta que a régua faz, respondida sem multiplicar linha.
+        data_tests: [not_null]
+      - name: qtd_marcadores
+        description: >
+          Quantos marcadores a nota tem. Existe porque 43 notas têm mais de um — o motivo de marcador entrar agregado e não por join.
+        data_tests: [not_null]
+
+  - name: stg_notas_fiscais
+    description: >
+      NF-e tipada e com os campos livres normalizados (4.1/4.2). Sem regra de negócio:
+      quem decide o que é venda é `vendas`. O `tipo` vem da seed de curadoria (4.9).
+    columns:
+      - name: id
+        description: >
+          Id da nota no Tiny. Chave técnica.
+        data_tests: [unique, not_null]
+      - name: chave_acesso
+        description: >
+          Chave de 44 dígitos. `unique` sem `not_null` de propósito: 559 notas não têm
+          chave (não é defeito — nota que não chegou a ser autorizada não ganha chave).
+        data_tests: [unique]
+      - name: data_emissao
+        description: >
+          As 22 notas com data nula foram para `quarentena_notas` na 6.3 — são registros
+          vazios (sem data, sem situação, sem item, sem chave, valor zero). O teste que
+          vigia isso agora é `nota_fora_da_quarentena_esta_completa`, com `error`: nota
+          nova sem data é defeito novo, não o problema já conhecido.
+      - name: situacao_codigo
+        description: >
+          ⚠️ É o CÓDIGO numérico; o texto está em `situacao`. Filtrar o errado devolve
+          zero linhas sem erro — armadilha que já custou uma investigação em 2026-09-05.
+
+  - name: stg_marcadores
+    description: >
+      Marcadores classificados por radical + seed (4.2b). É o modelo que sustenta o
+      abatimento do faturamento: a venda devolvida sai daqui (D8).
+    columns:
+      - name: id
+        description: >
+          Chave técnica da linha de marcador.
+        data_tests: [unique, not_null]
+      - name: id_nota
+        description: >
+          Nota marcada. ⚠️ 1:N — 43 notas têm mais de um marcador.
+        data_tests: [not_null]
+      - name: conceito
+        description: >
+          Lista FECHADA de propósito. Conceito novo tem que passar por decisão humana —
+          se a classificação inventar um valor, este teste é que avisa.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['ambiguo', 'cancelamento', 'devolucao', 'inutilizacao',
+                         'locacao', 'neutro', 'recusa', 'rejeicao']
+      - name: exclui_do_faturamento
+        description: >
+          Se ESTE marcador tira a nota do faturamento (decisão D8). É o campo que sustenta o abatimento.
+        data_tests: [not_null]
+
+  - name: vendas
+    description: >
+      A definição única de venda (4.6). Grão de ITEM, com o valor da nota rateado —
+      repetir o valor cheio inflaria o faturamento em 28%.
+    columns:
+      - name: id_item
+        description: >
+          O grão: item da nota. Uma nota com 5 itens vira 5 linhas.
+        data_tests: [unique, not_null]
+      - name: id_nota
+        description: Toda venda vem de uma nota que existe em `notas` — o achatado da 4.7.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('notas')
+                field: id
+      - name: mercado
+        description: Exportação entra como venda, mas marcada (decisão D2).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['interno', 'externo']
+
+  - name: stg_itens_nota
+    description: >
+      Itens da nota, tipados (4.1). ⚠️ Os tipos da FK não batem entre as tabelas:
+      `id_produto` e `codigo` são varchar aqui e integer em `tiny.estoque` — join ingênuo
+      nem compila. O cast fica concentrado neste modelo.
+    columns:
+      - name: id_item
+        description: >
+          Chave do item. O grão do `fato_vendas`.
+        data_tests: [unique, not_null]
+      - name: id_nota
+        description: >
+          Nota à qual o item pertence.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_notas_fiscais')
+                field: id
+      - name: id_produto
+        description: A chave que encontra o produto — 95,1% dos itens, contra 55,5% pelo código.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_produto')
+                field: id_produto
+              config:
+                where: "id_produto is not null"
+
+  - name: quarentena_notas
+    description: >
+      Notas separadas por defeito estrutural (6.3), com o motivo do lado. Quarentena não é
+      lixeira: apagar seria mais fácil e destruiria a única evidência de que havia algo
+      errado. Hoje são 22, todas "registro vazio: criado e nunca preenchido" — e o baseline
+      de 2026-08-23 tinha 21, ou seja, a origem gerou 1 novo em duas semanas.
+    columns:
+      - name: id_nota
+        description: A nota em quarentena. Ela CONTINUA em `stg_notas_fiscais` — aqui é o registro do motivo.
+        data_tests: [unique, not_null]
+      - name: motivo
+        description: Rótulo único para revisão, para ninguém ter que ler cinco booleanos.
+        data_tests: [not_null]

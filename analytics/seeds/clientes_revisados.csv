@@ -1,0 +1,2 @@
+id,decisao,motivo
+2016,ignorar_nome,"Mojibake na origem: o nome traz U+8058 e U+9AA0, que sao os bytes UTF-8 do NBSP e do soft hyphen lidos como GBK. E a mesma empresa do cadastro 124 (mesmo CNPJ), que tem o nome legivel. Como 2016 e o id maior, a regra 'mais recente vence' pegaria justamente o nome corrompido - por isso a excecao. Decidido por Erick em 2026-09-06."
