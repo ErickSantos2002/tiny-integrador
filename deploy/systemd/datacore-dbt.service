@@ -1,0 +1,19 @@
+# Reconstroi a camada analitica (dbt) do DataCore.
+#
+# Instalar na VPS:
+#   cp deploy/systemd/datacore-dbt.service /etc/systemd/system/
+#   cp deploy/systemd/datacore-dbt.timer   /etc/systemd/system/
+#   cp deploy/rodar-dbt.sh /opt/datacore-jobs/
+#   systemctl daemon-reload
+#   systemctl enable --now datacore-dbt.timer
+[Unit]
+Description=dbt build da camada analitica do DataCore
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/datacore-jobs/rodar-dbt.sh
+# O log vai para o journal: journalctl -u datacore-dbt
+StandardOutput=journal
+StandardError=journal

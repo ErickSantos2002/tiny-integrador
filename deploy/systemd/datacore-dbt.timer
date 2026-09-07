@@ -1,0 +1,19 @@
+# Uma vez por dia, depois da carga de notas das 04:00 UTC.
+#
+# Por que 05:00 e nao mais tarde: as cargas do dia sao notas 04:00 e 15:00, contas 10:00 e
+# estoque 16:00. Rodar as 05:00 (02:00 no Brasil) pega as notas do dia — que e o que manda
+# no faturamento — e mantem o trabalho pesado fora do expediente. Contas e estoque entram
+# com a carga da vespera; para faturamento diario isso nao muda conclusao nenhuma.
+# Se um dia o gold precisar de contas do mesmo dia, o horario passa para depois das 16:00.
+[Unit]
+Description=Reconstrucao diaria da camada analitica do DataCore
+
+[Timer]
+OnCalendar=*-*-* 05:00:00 UTC
+# Persistent: se a VPS estiver desligada na hora, roda assim que voltar. O historico SCD2
+# so guarda o que rodou — dia perdido nao volta.
+Persistent=true
+Unit=datacore-dbt.service
+
+[Install]
+WantedBy=timers.target
