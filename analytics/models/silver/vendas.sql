@@ -59,6 +59,23 @@ notas_excluidas as (
 
 ),
 
+-- Notas tiradas do faturamento POR DECISÃO HUMANA, uma a uma, com o motivo escrito.
+--
+-- Existe porque nem o campo estruturado é infalível. As três primeiras (2020) têm CFOP de
+-- item 6102 — venda — mas a natureza diz 6912 e as observações dizem "Mercadoria remetida
+-- para demonstração", com número de série do aparelho. O CFOP foi digitado errado, e a
+-- régua, que confia nele, contaria demonstração como venda.
+--
+-- ⚠️ Esta lista é o último recurso, não o primeiro. Quando o erro tiver padrão, a regra
+-- entra no modelo; a seed é para o caso isolado que nenhuma regra pega sem causar dano
+-- maior. Cada linha carrega motivo e data de quem decidiu.
+notas_curadas_fora as (
+
+    select id_nota
+    from {{ ref('notas_fora_do_faturamento') }}
+
+),
+
 -- peso de cada item dentro da sua nota, para ratear o valor da nota.
 -- ⚠️ A nota sem item, ou com todos os itens zerados, quebraria a divisão. Nesses
 -- casos o rateio cai para partes iguais entre os itens existentes — e a nota SEM
@@ -141,6 +158,9 @@ venda as (
 
         -- 3. sem marcador que exclua
         and n.id not in (select id_nota from notas_excluidas)
+
+        -- 4. não retirada à mão pela curadoria (ver o CTE, com o porquê)
+        and n.id not in (select id_nota from notas_curadas_fora)
 
 )
 
