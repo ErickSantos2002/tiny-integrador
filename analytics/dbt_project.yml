@@ -15,6 +15,12 @@ clean-targets:
   - "target"
   - "dbt_packages"
 
+# Ao fim de cada `dbt build`, grava o resultado em operacao.execucoes_job — a mesma tabela
+# dos extratores do Tiny. E o que faz a falha do job das 05:00 aparecer em /operacao/avisos
+# em vez de morrer calada no journal (item 8.5). O macro se ignora sozinho fora do `build`.
+on-run-end:
+  - "{{ registrar_execucao_dbt(results) }}"
+
 models:
   datacore:
     # silver = view por padrao: barata de reconstruir, sempre fresca.
