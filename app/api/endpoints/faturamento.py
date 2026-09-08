@@ -27,7 +27,7 @@ linhas**. Quem precisa da lista de notas continua tendo `/notas_fiscais/`.
 
 from typing import List
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -51,55 +51,98 @@ class FaturamentoMensal(BaseModel):
     produto: float
     servico: float
     total: float
+    # Contagem de NOTAS, não de linhas do fato. `gold.fato_vendas` tem grão de item: um
+    # `count(*)` ali devolveria 5.148 onde existem 4.352 notas. Já `gold.fato_servicos`
+    # tem grão de nota, e aí `count(*)` é o número certo.
+    quantidade_produto: int
+    quantidade_servico: int
 
 
-# Doze linhas sempre, mesmo nos meses sem nenhuma nota: `generate_series` cria os meses e o
-# `left join` preenche com zero. Sem isso o gráfico teria buracos onde houve mês parado, e
-# quem monta a tela precisaria saber disso para não desenhar dezembro no lugar de outubro.
+# Doze linhas por ano sempre, mesmo nos meses sem nenhuma nota: o produto cartesiano dos
+# dois `generate_series` cria a grade ano × mês e o `left join` preenche com zero. Sem isso
+# o gráfico teria buracos onde houve mês parado, e quem monta a tela precisaria saber disso
+# para não desenhar dezembro no lugar de outubro.
 SQL_MENSAL = """
-WITH meses AS (
-    SELECT generate_series(1, 12) AS mes
+WITH periodos AS (
+    SELECT a.ano, m.mes
+    FROM generate_series(:ano_inicio, :ano_fim) AS a(ano),
+         generate_series(1, 12) AS m(mes)
 ),
 produto AS (
-    SELECT EXTRACT(MONTH FROM data_venda)::int AS mes,
-           SUM(valor_nota_rateado) AS valor
+    SELECT EXTRACT(YEAR FROM data_venda)::int  AS ano,
+           EXTRACT(MONTH FROM data_venda)::int AS mes,
+           SUM(valor_nota_rateado)             AS valor,
+           COUNT(DISTINCT id_nota)             AS notas
     FROM gold.fato_vendas
-    WHERE EXTRACT(YEAR FROM data_venda) = :ano
-    GROUP BY 1
+    WHERE EXTRACT(YEAR FROM data_venda) BETWEEN :ano_inicio AND :ano_fim
+    GROUP BY 1, 2
 ),
 servico AS (
-    SELECT EXTRACT(MONTH FROM data_servico)::int AS mes,
-           SUM(valor_servicos) AS valor
+    SELECT EXTRACT(YEAR FROM data_servico)::int  AS ano,
+           EXTRACT(MONTH FROM data_servico)::int AS mes,
+           SUM(valor_servicos)                   AS valor,
+           COUNT(*)                              AS notas
     FROM gold.fato_servicos
-    WHERE EXTRACT(YEAR FROM data_servico) = :ano
-    GROUP BY 1
+    WHERE EXTRACT(YEAR FROM data_servico) BETWEEN :ano_inicio AND :ano_fim
+    GROUP BY 1, 2
 )
 SELECT
-    :ano                                                    AS ano,
-    m.mes,
-    COALESCE(p.valor, 0)                                    AS produto,
-    COALESCE(s.valor, 0)                                    AS servico,
-    COALESCE(p.valor, 0) + COALESCE(s.valor, 0)             AS total
-FROM meses m
-LEFT JOIN produto p ON p.mes = m.mes
-LEFT JOIN servico s ON s.mes = m.mes
-ORDER BY m.mes
+    p.ano,
+    p.mes,
+    COALESCE(pr.valor, 0)                        AS produto,
+    COALESCE(sv.valor, 0)                        AS servico,
+    COALESCE(pr.valor, 0) + COALESCE(sv.valor, 0) AS total,
+    COALESCE(pr.notas, 0)                        AS quantidade_produto,
+    COALESCE(sv.notas, 0)                        AS quantidade_servico
+FROM periodos p
+LEFT JOIN produto pr ON pr.ano = p.ano AND pr.mes = p.mes
+LEFT JOIN servico sv ON sv.ano = p.ano AND sv.mes = p.mes
+ORDER BY p.ano, p.mes
 """
 
 
 @router.get("/mensal", response_model=List[FaturamentoMensal])
 def faturamento_mensal(
     ano: int = Query(..., ge=2015, le=2100, description="Ano de referência (4 dígitos)"),
+    ano_fim: int | None = Query(
+        None,
+        ge=2015,
+        le=2100,
+        description="Último ano da faixa. Ausente, devolve só o ano de `ano`.",
+    ),
     db: Session = Depends(get_db),
 ):
-    """Faturamento mês a mês de um ano, separado entre produto (NF-e) e serviço (NFS-e).
+    """Faturamento mês a mês, separado entre produto (NF-e) e serviço (NFS-e).
 
-    Devolve sempre doze linhas. `total` é a soma dos dois — que é o número que o dashboard
-    mostra como faturamento da empresa.
+    Devolve sempre doze linhas por ano da faixa, com zero nos meses sem nota. `total` é a
+    soma dos dois — que é o número que o dashboard mostra como faturamento da empresa.
+
+    `ano_fim` existe porque a tela de Financeiro compara cinco anos lado a lado e calcula a
+    variação de cada um contra o anterior. Sem a faixa, ela faria cinco chamadas para
+    montar uma tabela só; e a variação do primeiro ano exige o ano anterior a ele, o que
+    convidaria a tela a inventar a própria janela.
 
     ⚠️ `produto` e `servico` vêm de fatos com grãos diferentes (item da nota × nota). Somar
     os dois no mesmo total é correto porque cada um já está agregado por mês; o que não se
-    pode fazer é juntar as linhas dos dois fatos numa tabela só, que dupla-contaria.
+    pode fazer é juntar as linhas dos dois fatos numa tabela só, que dupla-contaria. Pelo
+    mesmo motivo `quantidade_produto` conta notas distintas, não linhas do fato.
     """
-    linhas = db.execute(text(SQL_MENSAL), {"ano": ano}).mappings().all()
+    fim = ano if ano_fim is None else ano_fim
+    if fim < ano:
+        raise HTTPException(
+            status_code=422,
+            detail="`ano_fim` não pode ser anterior a `ano`.",
+        )
+    # Uma faixa aberta demais devolveria centenas de linhas e varreria o fato inteiro. O
+    # limite é generoso para o uso real (a tela pede cinco anos) e fecha o caso de alguém
+    # pedir 2015–2100 por engano de digitação.
+    if fim - ano > 19:
+        raise HTTPException(
+            status_code=422,
+            detail="A faixa de anos não pode passar de 20 anos.",
+        )
+
+    linhas = db.execute(
+        text(SQL_MENSAL), {"ano_inicio": ano, "ano_fim": fim}
+    ).mappings().all()
     return [FaturamentoMensal(**dict(linha)) for linha in linhas]
