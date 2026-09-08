@@ -11,10 +11,14 @@
   compilação óbvio, dá coluna faltando. Renomear aqui é o que impede esse nome de vazar
   para todo modelo daqui pra frente.
 
-  ⚠️ **Todos os valores chegam como `text`.** Medido em 2026-09-06 nas 5.227 linhas: ponto
-  decimal, nenhuma vírgula, nenhum vazio, 100% conversível — então o cast é seguro. Mas ele
-  precisa estar em UM lugar só: `sum()` sobre texto não soma, concatena ou estoura, e o dia
-  em que a prefeitura mandar `1.234,56` isto aqui é que quebra, não os cinco modelos abaixo.
+  ⚠️ **Todos os valores chegam como `text`, e em DUAS convenções ao mesmo tempo.**
+  A medição de 2026-09-06 dizia "ponto decimal, nenhuma vírgula, 100% conversível" — mas
+  olhou só `valor_dos_serviços`, a única coluna onde isso é verdade. Medido de novo em
+  2026-09-08 nas 5.227 linhas: `valor_do_iss` tem 4.385 com vírgula, `valor_total_recebido`
+  3.123 e `valor_das_deduções` 2.857, incluindo 18 no formato `3.880,00`.
+  Isso passou dois dias sem aparecer porque a silver é **view**: o cast só roda quando
+  alguém materializa, e o primeiro a materializar foi o `fato_servicos`. A conversão agora
+  mora no macro `texto_para_numero()`, em um lugar só.
 
   Nenhuma regra de negócio aqui: o que conta como faturamento de serviço é assunto da
   camada de cima, como em `vendas.sql`.
@@ -49,8 +53,11 @@ limpo as (
         -- para ninguém filtrar por 'cancelada' aqui e receber zero linhas sem erro.
         status_da_nota_fiscal                                    as status_codigo,
         "data_da_emissão_nfs_e_dsr_e"::date                      as data_emissao,
-        "data_de_competência"::date                              as data_competencia,
-        nullif(btrim("data_de_cancelamento"), '')::date          as data_cancelamento,
+        -- ⚠️ NUNCA `::date` aqui: a coluna mistura "17/01/2024" e "2024-01-17", e o banco
+        -- está com datestyle MDY. Data de dia <= 12 trocaria dia por mês SEM ERRO. Ver o
+        -- macro, que decide pelo padrão do texto e não pela configuração do servidor.
+        {{ texto_para_data('"data_de_competência"') }}           as data_competencia,
+        {{ texto_para_data('"data_de_cancelamento"') }}          as data_cancelamento,
 
         -- ⚠️ CURADORIA MANUAL, não vem da origem: o leiaute nacional entrega cancelamento
         -- como Evento separado, ainda não tratado na importação (defeito D11). NFS-e
@@ -78,10 +85,10 @@ limpo as (
 
         -- ---------------------------------------------------------------- valores
         -- Cast concentrado aqui (ver cabeçalho).
-        coalesce(nullif(btrim("valor_dos_serviços"), '')::numeric, 0)   as valor_servicos,
-        coalesce(nullif(btrim("valor_do_iss"), '')::numeric, 0)         as valor_iss,
-        coalesce(nullif(btrim("valor_das_deduções"), '')::numeric, 0)   as valor_deducoes,
-        coalesce(nullif(btrim("valor_total_recebido"), '')::numeric, 0) as valor_total_recebido,
+        {{ texto_para_numero('"valor_dos_serviços"') }}   as valor_servicos,
+        {{ texto_para_numero('"valor_do_iss"') }}         as valor_iss,
+        {{ texto_para_numero('"valor_das_deduções"') }}   as valor_deducoes,
+        {{ texto_para_numero('valor_total_recebido') }}   as valor_total_recebido,
         iss_retido
 
     from bronze

@@ -329,3 +329,76 @@ models:
               arguments:
                 values: ['ok', 'sem base de comparacao', 'volume abaixo do normal',
                          'volume MUITO abaixo do normal', 'volume muito acima do normal']
+
+  - name: fato_servicos
+    description: >
+      O faturamento de serviço (NFS-e), grão de NOTA — a NFS-e não tem itens, tem uma
+      discriminação em texto livre, então grão de nota aqui é o grão que o documento tem.
+      Ficou fora das Fases 5 e 6 de propósito: o star schema desenhava, mas nenhum
+      consumidor pedia. O consumidor apareceu na Fase 9 — o dashboard soma NF-e **mais**
+      NFS-e, e um endpoint lendo só `fato_vendas` responderia metade da tela.
+      Compartilha `dim_cliente` e `dim_geografia` com os outros dois fatos, então
+      "quanto este cliente comprou de produto E de serviço" é uma consulta só.
+      ⚠️ NÃO somar com `fato_vendas` numa tabela só — grãos diferentes dupla-contariam.
+      ⚠️ Sem produto e sem vendedor: a NFS-e não tem esses campos (ver a matriz de
+      barramento). Nota cancelada não entra — regra já decidida na curadoria 4.9 e no
+      endpoint da API.
+    columns:
+      - name: sk_servico
+        description: "O grão: uma linha por NFS-e não cancelada."
+        data_tests: [unique, not_null]
+      - name: sk_cliente
+        description: >
+          A MESMA chave dos outros dois fatos, ligada pelo documento do tomador. Tomador
+          sem documento cai no membro "não informado" da dimensão, nunca em NULL — é o que
+          impede a linha de sumir num join e o total encolher sem aviso.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_cliente')
+                field: sk_cliente
+      - name: sk_geografia
+        description: >
+          Praça do CLIENTE, não a cidade gravada na nota. A nota traz a sua própria, mas
+          usar a do cliente é o que faz "faturamento por região" somar igual nos três
+          fatos — duas geografias para o mesmo cliente fariam o total por região divergir
+          do total geral sem motivo achável.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_geografia')
+                field: sk_geografia
+      - name: data_servico
+        description: Data de emissão da NFS-e. Liga na `dim_tempo` pelo mesmo papel do `fato_vendas`.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_tempo')
+                field: data
+      - name: numero_nfse
+        description: Número da nota na prefeitura. Dimensão degenerada — vive no fato.
+      - name: codigo_atividade
+        description: >
+          Código de atividade municipal, o candidato a separar as LINHAS DE SERVIÇO:
+          códigos 62* são TI (Plataforma) e 33* manutenção/calibração. Fica como atributo
+          degenerado e não como dimensão, porque o `fato_vendas` também não tem uma e
+          criá-la só aqui deixaria a régua de linha de negócio existindo de um lado só.
+      - name: tomador_sem_documento
+        description: >
+          Marca a linha cujo cliente caiu no membro "não informado". Existe para o total
+          poder ser auditado sem precisar reproduzir o join.
+      - name: valor_servicos
+        description: >
+          **A métrica de faturamento de serviço.** É esta que soma com o
+          `valor_nota_rateado` do `fato_vendas` para dar o faturamento total da empresa.
+        data_tests: [not_null]
+      - name: valor_iss
+        description: ISS da nota. Ao lado do faturamento, na própria coluna.
+      - name: valor_deducoes
+        description: Deduções da base de cálculo. Ao lado do faturamento, na própria coluna.
+      - name: valor_total_recebido
+        description: >
+          O que de fato entrou, que não é o mesmo que o valor do serviço quando há retenção.
