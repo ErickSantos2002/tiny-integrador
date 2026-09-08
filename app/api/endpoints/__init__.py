@@ -11,3 +11,4 @@ from .contas_pagar import router as contas_pagar
 from .contas_receber import router as contas_receber
 from .centro_custo import router as centro_custo
 from .operacao import router as operacao
+from .faturamento import router as faturamento

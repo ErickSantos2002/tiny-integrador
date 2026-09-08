@@ -36,6 +36,8 @@ app.include_router(endpoints.contas_receber)
 app.include_router(endpoints.centro_custo)
 # saúde da ingestão: o DataCoreHS mostra aqui quando uma carga deu errado
 app.include_router(endpoints.operacao)
+# Faturamento lido do gold — a regra unica, ja aplicada (Fase 9).
+app.include_router(endpoints.faturamento)
 
 # Health check
 @app.get("/")
