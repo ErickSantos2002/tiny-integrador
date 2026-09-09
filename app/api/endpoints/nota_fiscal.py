@@ -1,12 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from typing import List, Optional
 from app.core.faturamento import SITUACAO_EMITIDA, filtro_cfop_venda, sem_marcador_ruim
 from app.core.paginacao import Pagina, limite_query, offset_query, paginar
 from app.models.database import SessionLocal
 from app.models.nota_fiscal import NotaFiscal as NotaFiscalModel
-from app.models.marcador import Marcador
 from app.schemas.nota_fiscal import NotaFiscal
 from app.schemas.nota_fiscal import NotaFiscalUpdateTipo
 
@@ -145,10 +144,13 @@ def listar_locacao(
         joinedload(NotaFiscalModel.itens),
     )
 
-    # 🔹 Apenas notas com o marcador "Locação"
+    # Quem decide o que é locação é a `silver.stg_marcadores`, pelo conceito — não um
+    # `ilike("loca%")` sobre a descrição crua. O prefixo funcionava por sorte de grafia:
+    # bastava alguém cadastrar "aluguel" ou "LOC." para a nota sumir da tela sem erro
+    # nenhum. Na silver a classificação é por radical, com seed de exceções e teste.
     query = query.filter(
-        NotaFiscalModel.marcadores.any(
-            Marcador.descricao.ilike("loca%")
+        NotaFiscalModel.id.in_(
+            text("SELECT id_nota FROM silver.stg_marcadores WHERE conceito = 'locacao'")
         )
     )
 
