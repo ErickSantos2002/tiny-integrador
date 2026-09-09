@@ -24,9 +24,23 @@ def listar_contas_pagar(
     data_fim: Optional[str] = Query(None),
     vencimento_inicio: Optional[str] = Query(None),
     vencimento_fim: Optional[str] = Query(None),
+    incluir_excluidas: bool = Query(
+        False,
+        description=(
+            "Incluir contas que o Tiny não reconhece mais. Fora por padrão: quando uma "
+            "conta atrasa, o financeiro exclui a antiga e emite outra com id novo — a "
+            "antiga fica no banco em aberto e é dívida que já foi substituída."
+        ),
+    ),
     db: Session = Depends(get_db),
 ):
     query = db.query(ContasPagarModel)
+
+    # Conta que sumiu da origem sai por padrão. Não é limpeza de dado: a linha fica no
+    # banco porque o compromisso existiu, e o job a marca em `excluida_na_origem_em` ao
+    # reconferir. O que estava errado era contá-la como se ainda estivesse aberta.
+    if not incluir_excluidas:
+        query = query.filter(ContasPagarModel.excluida_na_origem_em.is_(None))
 
     if situacao:
         query = query.filter(ContasPagarModel.situacao == situacao)
