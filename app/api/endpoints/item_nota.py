@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
+from app.core.paginacao import Pagina, limite_query, offset_query, paginar
 from app.models.database import SessionLocal
 from app.models.item_nota import ItemNota as ItemNotaModel
 from app.schemas.item_nota import ItemNota
@@ -17,12 +18,14 @@ def get_db():
         db.close()
 
 # GET /itens_nota - listar com filtros opcionais
-@router.get("/", response_model=List[ItemNota])
+@router.get("/", response_model=Pagina[ItemNota])
 def listar_itens(
     id_nota: Optional[int] = Query(None),
     id_produto: Optional[str] = Query(None),
     descricao: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    limite: int = limite_query(),
+    offset: int = offset_query(),
+    db: Session = Depends(get_db),
 ):
     query = db.query(ItemNotaModel)
 
@@ -33,7 +36,7 @@ def listar_itens(
     if descricao:
         query = query.filter(ItemNotaModel.descricao.ilike(f"%{descricao}%"))
 
-    return query.all()
+    return paginar(query, limite, offset)
 
 # GET /itens_nota/{id} - obter item específico
 @router.get("/{id}", response_model=ItemNota)

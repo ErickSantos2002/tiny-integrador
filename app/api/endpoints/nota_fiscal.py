@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
 from typing import List, Optional
 from app.core.faturamento import SITUACAO_EMITIDA, filtro_cfop_venda, sem_marcador_ruim
+from app.core.paginacao import Pagina, limite_query, offset_query, paginar
 from app.models.database import SessionLocal
 from app.models.nota_fiscal import NotaFiscal as NotaFiscalModel
 from app.models.marcador import Marcador
@@ -19,7 +20,7 @@ def get_db():
     finally:
         db.close()
 
-@router.get("/", response_model=List[NotaFiscal])
+@router.get("/", response_model=Pagina[NotaFiscal])
 def listar_notas_fiscais(
     id_cliente: Optional[int] = Query(None),
     data_emissao: Optional[str] = Query(None),
@@ -28,7 +29,9 @@ def listar_notas_fiscais(
     natureza_operacao: Optional[List[str]] = Query(None),
     descricao_situacao: Optional[str] = Query(None),
     tipo: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    limite: int = limite_query(),
+    offset: int = offset_query(),
+    db: Session = Depends(get_db),
 ):
     query = db.query(NotaFiscalModel).options(
         joinedload(NotaFiscalModel.cliente),
@@ -63,7 +66,7 @@ def listar_notas_fiscais(
     if tipo:   # <-- Filtro do novo campo
         query = query.filter(NotaFiscalModel.tipo == tipo)
 
-    return query.all()
+    return paginar(query, limite, offset)
 
 # ⚠️ DEPRECADO em 2026-09-08 — substituído por `GET /faturamento/vendas`.
 #

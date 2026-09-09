@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
+from app.core.paginacao import Pagina, limite_query, offset_query, paginar
 from app.models.database import SessionLocal
 from app.models.endereco_entrega import EnderecoEntrega as EnderecoEntregaModel
 from app.schemas.endereco_entrega import EnderecoEntrega
@@ -17,12 +18,14 @@ def get_db():
         db.close()
 
 # GET /enderecos_entrega - listar todos com filtros opcionais
-@router.get("/", response_model=List[EnderecoEntrega])
+@router.get("/", response_model=Pagina[EnderecoEntrega])
 def listar_enderecos(
     id_nota: Optional[int] = Query(None),
     cpf_cnpj: Optional[str] = Query(None),
     nome_destinatario: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    limite: int = limite_query(),
+    offset: int = offset_query(),
+    db: Session = Depends(get_db),
 ):
     query = db.query(EnderecoEntregaModel)
 
@@ -33,7 +36,7 @@ def listar_enderecos(
     if nome_destinatario:
         query = query.filter(EnderecoEntregaModel.nome_destinatario.ilike(f"%{nome_destinatario}%"))
 
-    return query.all()
+    return paginar(query, limite, offset)
 
 # GET /enderecos_entrega/{id}
 @router.get("/{id}", response_model=EnderecoEntrega)

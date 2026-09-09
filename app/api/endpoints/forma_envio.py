@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
+from app.core.paginacao import Pagina, limite_query, offset_query, paginar
 from app.models.database import SessionLocal
 from app.models.forma_envio import FormaEnvio as FormaEnvioModel
 from app.schemas.forma_envio import FormaEnvio
@@ -17,12 +18,14 @@ def get_db():
         db.close()
 
 # GET /formas_envio - listar com filtros
-@router.get("/", response_model=List[FormaEnvio])
+@router.get("/", response_model=Pagina[FormaEnvio])
 def listar_formas_envio(
     id_nota: Optional[int] = Query(None),
     id_forma: Optional[str] = Query(None),
     descricao: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    limite: int = limite_query(),
+    offset: int = offset_query(),
+    db: Session = Depends(get_db),
 ):
     query = db.query(FormaEnvioModel)
 
@@ -33,7 +36,7 @@ def listar_formas_envio(
     if descricao:
         query = query.filter(FormaEnvioModel.descricao.ilike(f"%{descricao}%"))
 
-    return query.all()
+    return paginar(query, limite, offset)
 
 # GET /formas_envio/{id}
 @router.get("/{id}", response_model=FormaEnvio)

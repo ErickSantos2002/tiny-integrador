@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
+from app.core.paginacao import Pagina, limite_query, offset_query, paginar
 from app.models.database import SessionLocal
 from app.models.marcador import Marcador as MarcadorModel
 from app.schemas.marcador import Marcador
@@ -17,12 +18,14 @@ def get_db():
         db.close()
 
 # GET /marcadores - listar com filtros
-@router.get("/", response_model=List[Marcador])
+@router.get("/", response_model=Pagina[Marcador])
 def listar_marcadores(
     id_nota: Optional[int] = Query(None),
     id_marcador: Optional[str] = Query(None),
     descricao: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    limite: int = limite_query(),
+    offset: int = offset_query(),
+    db: Session = Depends(get_db),
 ):
     query = db.query(MarcadorModel)
 
@@ -33,7 +36,7 @@ def listar_marcadores(
     if descricao:
         query = query.filter(MarcadorModel.descricao.ilike(f"%{descricao}%"))
 
-    return query.all()
+    return paginar(query, limite, offset)
 
 # GET /marcadores/{id}
 @router.get("/{id}", response_model=Marcador)
