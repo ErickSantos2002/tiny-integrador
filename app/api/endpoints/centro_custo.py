@@ -1,18 +1,12 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, not_
+from sqlalchemy import func, text
 from typing import List, Optional
 
-from app.core.faturamento import (
-    CFOPS_VENDA as CFOPS,
-    MARCADORES_RUINS,
-    SITUACAO_EMITIDA,
-)
 from app.models.database import SessionLocal
 from app.models.centro_custo_config import CentroCustoConfig as CentroCustoConfigModel
 from app.models.item_nota import ItemNota as ItemNotaModel
 from app.models.nota_fiscal import NotaFiscal
-from app.models.marcador import Marcador
 from app.schemas.centro_custo_config import CentroCustoConfig, CentroCustoConfigCreate
 
 router = APIRouter(prefix="/centro_custo", tags=["Centro de Custo"])
@@ -26,6 +20,14 @@ def get_db():
         db.close()
 
 
+# As notas que contam são as que `gold.fato_vendas` aprova. Antes esta linha era três
+# filtros escritos aqui — situação por texto, CFOP procurado como substring dentro de
+# `natureza_operacao` (campo livre) e uma subquery de marcadores comparados contra uma
+# lista fixa de sete descrições. Eram uma terceira cópia da régua, e divergiam das outras
+# duas sem que nada acusasse.
+NOTAS_DE_VENDA = "SELECT DISTINCT id_nota FROM gold.fato_vendas"
+
+
 @router.get("/resumo_produto/")
 def resumo_produto(
     ano: int = Query(...),
@@ -33,14 +35,13 @@ def resumo_produto(
     exato: bool = Query(False),
     db: Session = Depends(get_db),
 ):
-    bad_markers = (
-        db.query(Marcador.id_nota)
-        .filter(func.lower(Marcador.descricao).in_(MARCADORES_RUINS))
-        .subquery()
-    )
+    """Quantidade e receita de um produto, mês a mês, dentro de um ano.
 
-    cfop_filter = or_(*[NotaFiscal.natureza_operacao.ilike(c) for c in CFOPS])
-
+    O produto é procurado pela DESCRIÇÃO do item na origem, e não pelo nome canônico de
+    `gold.dim_produto`, de propósito: é o texto que a tela oferece na busca, e o
+    dicionário do gold consolida 433 descrições em 291. Trocar isso mudaria o que a busca
+    encontra — é melhoria, e merece ser feita medindo, não de carona nesta migração.
+    """
     if exato:
         desc_filter = func.upper(ItemNotaModel.descricao) == produto.upper()
     else:
@@ -55,10 +56,8 @@ def resumo_produto(
         .join(NotaFiscal, ItemNotaModel.id_nota == NotaFiscal.id)
         .filter(
             func.extract("year", NotaFiscal.data_emissao) == ano,
-            NotaFiscal.descricao_situacao == SITUACAO_EMITIDA,
-            cfop_filter,
+            NotaFiscal.id.in_(text(NOTAS_DE_VENDA)),
             desc_filter,
-            not_(NotaFiscal.id.in_(bad_markers)),
         )
         .group_by(func.extract("month", NotaFiscal.data_emissao))
         .order_by("mes")

@@ -1,10 +1,24 @@
-"""Régua de o que conta como venda no faturamento.
+"""Régua de o que conta como venda no faturamento. ⚠️ DEPRECADA.
 
-Ficava duplicada entre `endpoints/nota_fiscal.py` e `endpoints/centro_custo.py`, e as
-duas cópias divergiram: a de nota_fiscal comparava o marcador sem normalizar o caixa,
-então "NF cancelada" (que é como o Tiny grava) não casava com "nf cancelada" da lista e
-a nota entrava no faturamento. Aqui é a fonte única — quem for filtrar venda importa
-daqui e usa `sem_marcador_ruim()`.
+**Não use este módulo em código novo.** A régua de verdade vive em `gold.fato_vendas`,
+construída e testada pelo dbt, e chega pronta por `GET /faturamento/vendas`. O que está
+aqui é a versão que se procura CFOP dentro de texto livre e compara marcador contra uma
+lista fixa — os dois defeitos medidos no item 9.1.
+
+Sobrou um consumidor: `/notas_fiscais/vendas/`, também deprecado. Quando aquele endpoint
+sair, este arquivo sai junto. O critério para decidir isso está escrito em
+`endpoints/nota_fiscal.py`, acima da rota.
+
+## Como este arquivo chegou aqui
+
+A régua ficava duplicada entre `endpoints/nota_fiscal.py` e `endpoints/centro_custo.py`,
+e as duas cópias divergiram: a de nota_fiscal comparava o marcador sem normalizar o
+caixa, então "NF cancelada" (que é como o Tiny grava) não casava com "nf cancelada" da
+lista e a nota entrava no faturamento. Este módulo nasceu para ser a fonte única.
+
+Foi o passo certo, e durou pouco: unificar as cópias mostrou que o lugar de uma
+definição de negócio não é o código que serve a requisição. O `centro_custo` migrou para
+o `gold` em 2026-09-08 e parou de importar daqui.
 """
 
 from sqlalchemy import func, or_

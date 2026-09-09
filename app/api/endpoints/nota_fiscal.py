@@ -65,8 +65,27 @@ def listar_notas_fiscais(
 
     return query.all()
 
-# Novo endpoint: /vendas/
-@router.get("/vendas/", response_model=List[NotaFiscal])
+# ⚠️ DEPRECADO em 2026-09-08 — substituído por `GET /faturamento/vendas`.
+#
+# Este endpoint REIMPLEMENTA a régua de faturamento: CFOP procurado como substring dentro
+# de `natureza_operacao`, que é campo de texto livre, e marcador comparado contra uma lista
+# fixa de sete descrições. Os dois defeitos foram medidos (item 9.1): notas canceladas
+# passavam por diferença de caixa, e exportação (CFOP 7102) nunca apareceu porque não está
+# na lista. O substituto lê `gold.fato_vendas`, onde a régua é única e testada.
+#
+# Continua no ar de propósito, e não por esquecimento: o DataCoreHS parou de chamá-lo
+# hoje, mas ele é uma rota pública de uma API que outros consumidores podem estar usando —
+# e o log de acesso, que responderia isso, só existe desde ontem.
+#
+# COMO DECIDIR A REMOÇÃO, sem adivinhar: agora que o frontend migrou, toda chamada que
+# aparecer no log é de outro consumidor. Rodar, depois de alguns dias de uso normal:
+#
+#     docker logs --since 168h <container-da-api> 2>&1 | grep "\[acesso\]" \
+#         | grep "/notas_fiscais/vendas/"
+#
+# Zero linhas em uma semana que inclua fechamento de mês → pode sair, junto com
+# `app/core/faturamento.py`, que existe só para servi-lo.
+@router.get("/vendas/", response_model=List[NotaFiscal], deprecated=True)
 def listar_vendas(
     id_cliente: Optional[int] = Query(None),
     data_emissao: Optional[str] = Query(None),
