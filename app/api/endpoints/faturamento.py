@@ -297,3 +297,87 @@ def observacoes_da_venda(id_nota: int, db: Session = Depends(get_db)):
     if linha is None:
         raise HTTPException(status_code=404, detail="Nota de venda não encontrada.")
     return {"id": id_nota, "observacoes": linha["observacoes"]}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# As notas de serviço que compõem o faturamento
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Mesmo desenho de `/faturamento/vendas`: `gold.fato_servicos` decide QUAIS notas contam,
+# e os campos de exibição vêm da origem. `sk_servico` é o próprio `id` de `tiny.servicos`,
+# então a ligação é direta.
+#
+# A diferença em relação a `/notas_servico/` não é o conjunto — os dois devolvem as mesmas
+# 5.004 notas, conferido. É de onde vem o VALOR:
+#
+# Na origem, `valor_dos_serviços` é TEXTO, e em duas convenções (brasileira e americana).
+# Quem consome converte, e o `ServicosContext` do DataCoreHS carrega uma cópia antiga
+# dessa conversão, sem o teste de ponto-de-milhar — nela `"1.234"` vira R$ 1,23. Hoje
+# nenhuma nota cai nesse caso (medido: zero), mas é bomba armada esperando um cadastro
+# escrito de outro jeito. Aqui o valor sai de `gold.fato_servicos`, onde já é `numeric`
+# convertido por macro testada, e a tela não precisa converter nada.
+
+SQL_SERVICOS = """
+SELECT
+    s.id,
+    s."nº_da_nota_fiscal_eletrônica"  AS numero_nfse,
+    s."data_da_emissão_nfs_e_dsr_e"   AS data_emissao,
+    s."razão_social_do_tomador"       AS razao_social_tomador,
+    s."cpf_cnpj_do_tomador"           AS cpf_cnpj_tomador,
+    s."cidade_do_tomador"             AS cidade_tomador,
+    s."uf_do_tomador"                 AS uf_tomador,
+    s."discriminação_dos_serviços"    AS discriminacao_servico,
+    -- Numéricos, vindos do gold: a origem grava os três como texto em duas convenções.
+    f.valor_servicos                  AS valor_servico,
+    f.valor_iss,
+    f.valor_total_recebido
+FROM tiny.servicos s
+-- O `gold` é quem decide o que é serviço faturado. Este join é a régua deste endpoint.
+JOIN gold.fato_servicos f ON f.sk_servico = s.id
+WHERE (CAST(:data_inicio AS date) IS NULL
+       OR s."data_da_emissão_nfs_e_dsr_e" >= CAST(:data_inicio AS date))
+  AND (CAST(:data_fim AS date) IS NULL
+       OR s."data_da_emissão_nfs_e_dsr_e" <= CAST(:data_fim AS date))
+ORDER BY s."data_da_emissão_nfs_e_dsr_e" DESC, s.id DESC
+"""
+
+
+class NotaDeServico(BaseModel):
+    id: int
+    numero_nfse: int | None = None
+    data_emissao: date | None = None
+    razao_social_tomador: str | None = None
+    cpf_cnpj_tomador: str | None = None
+    cidade_tomador: str | None = None
+    uf_tomador: str | None = None
+    discriminacao_servico: str | None = None
+    valor_servico: Decimal | None = None
+    valor_iss: Decimal | None = None
+    valor_total_recebido: Decimal | None = None
+
+
+@router.get("/servicos", response_model=List[NotaDeServico])
+def servicos(
+    data_inicio: date | None = Query(None, description="Emissão a partir de (inclusive)"),
+    data_fim: date | None = Query(None, description="Emissão até (inclusive)"),
+    db: Session = Depends(get_db),
+):
+    """As notas de serviço que contam como faturamento, pela régua do `gold`.
+
+    Os valores chegam como número, e não como o texto que a origem grava — é a diferença
+    que importa aqui, porque a conversão desse texto tem duas convenções e já mora
+    duplicada no navegador.
+
+    Não é paginado pelo mesmo motivo de `/faturamento/vendas`: a tela de Serviços desenha
+    KPI, evolução mensal e dois rankings sobre o conjunto todo (item 9.4).
+    """
+    if data_inicio and data_fim and data_fim < data_inicio:
+        raise HTTPException(
+            status_code=422,
+            detail="`data_fim` não pode ser anterior a `data_inicio`.",
+        )
+
+    linhas = db.execute(
+        text(SQL_SERVICOS), {"data_inicio": data_inicio, "data_fim": data_fim}
+    ).mappings().all()
+    return [NotaDeServico(**dict(linha)) for linha in linhas]

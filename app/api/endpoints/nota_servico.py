@@ -26,7 +26,19 @@ def get_db():
     finally:
         db.close()
 
-@router.get("/", response_model=List[NotaServico])
+# ⚠️ DEPRECADO em 2026-09-08 — substituído por `GET /faturamento/servicos`.
+#
+# Não é o conjunto que muda: os dois devolvem as mesmas 5.004 notas, conferido. O que muda
+# é de onde vem o VALOR. Aqui `valor_dos_serviços` sai como TEXTO, do jeito que a origem
+# grava — e a origem grava em duas convenções, `1.234,56` e `1234.56`. Cada consumidor
+# precisava converter, e foi assim que uma cópia antiga da conversão sobreviveu dentro do
+# `ServicosContext` do DataCoreHS, sem o teste de ponto-de-milhar: nela `"1.234"` viraria
+# R$ 1,23. O substituto lê `gold.fato_servicos`, onde o valor já é `numeric`.
+#
+# Continua no ar pelo mesmo motivo do `/notas_fiscais/vendas/`: é rota pública, o
+# DataCoreHS parou de chamá-la hoje, e o log de acesso só existe desde 08/09. O critério
+# de remoção é o mesmo, e está escrito em `endpoints/nota_fiscal.py`.
+@router.get("/", response_model=List[NotaServico], deprecated=True)
 def listar_notas_servico(
     cpf_cnpj_tomador: Optional[str] = Query(None),
     cpf_cnpj_prestador: Optional[str] = Query(None),
