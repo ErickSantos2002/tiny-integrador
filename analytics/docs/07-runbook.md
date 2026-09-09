@@ -184,3 +184,50 @@ de ~9 mil clientes. **Nunca commitar.**
 | `dbt build` | 194 nós — PASS=192, WARN=2, ERROR=0 |
 
 **Se o faturamento mudou e ninguém mexeu na régua, o problema é técnico, não de negócio.**
+
+---
+
+## 10. Fiz o deploy e o número na tela não mudou
+
+**Não é bug. O deploy do `datacore-dbt` sobe o código; ele não executa nada.**
+
+A última linha do `Dockerfile` é `CMD ["sleep", "infinity"]`, e isso é decisão, não
+descuido: o EasyPanel **reinicia todo container que morre**. Se o `CMD` fosse `dbt build`,
+o container terminaria em trinta segundos, o EasyPanel o reviveria, e o resultado seria um
+`dbt build` em laço infinito contra o banco de produção.
+
+Quem dispara o trabalho é o timer, de fora, com `docker exec` — mesmo padrão dos quatro
+extratores. Ou seja:
+
+| Serviço | O deploy já é o efeito? |
+|---|---|
+| `datacore-api`, `DataCoreHS` | **Sim** — servem requisição, sobem já valendo |
+| `datacore-dbt` | **Não** — o código novo fica dormindo até o próximo build |
+
+**Como confirmar em que pé está**, sem adivinhar pelo número:
+
+```bash
+# a imagem é nova? (compare com a hora do seu deploy)
+ssh datacore 'docker inspect --format "{{.Created}}" \
+  $(docker ps --format "{{.Names}}" | grep -m1 dbt)'
+
+# o código novo está DENTRO dela? (troque pelo arquivo que você acabou de subir)
+ssh datacore 'docker exec $(docker ps --format "{{.Names}}" | grep -m1 dbt) \
+  ls seeds/'
+
+# quando o build roda de novo?
+ssh datacore 'systemctl list-timers datacore-dbt.timer --no-pager'
+```
+
+Imagem nova + código dentro + build ainda não rodado = **está tudo certo, só falta a hora**.
+
+**Para antecipar** (é o mesmo comando do timer, sem esperar as 05:00 UTC):
+
+```bash
+ssh datacore '/opt/datacore-jobs/rodar-dbt.sh'
+```
+
+⚠️ Antecipar faz os **snapshots SCD2** tirarem a foto agora em vez de às 05:00. É correto e
+é o comportamento desejado — só não é reversível, então é escolha e não automatismo.
+
+---
