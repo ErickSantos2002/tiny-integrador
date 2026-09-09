@@ -25,6 +25,8 @@ Aqui a soma acontece no banco, que é onde os dados já estão, e a resposta sã
 linhas**. Quem precisa da lista de notas continua tendo `/notas_fiscais/`.
 """
 
+from datetime import date
+from decimal import Decimal
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -146,3 +148,152 @@ def faturamento_mensal(
         text(SQL_MENSAL), {"ano_inicio": ano, "ano_fim": fim}
     ).mappings().all()
     return [FaturamentoMensal(**dict(linha)) for linha in linhas]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# As notas que compõem o faturamento
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Por que este endpoint existe, se `/notas_fiscais/vendas/` devolve o mesmo tipo de coisa:
+#
+# 1. **A régua.** Aquele reimplementa em Python o que é venda — CFOP procurado como
+#    substring dentro de `natureza_operacao` (texto livre), lista fixa de sete marcadores
+#    comparada sem normalizar. Aqui o conjunto de notas é decidido por `gold.fato_vendas`,
+#    que é a régua única, testada a cada execução do dbt.
+# 2. **O tamanho.** Aquele devolve a nota inteira com cliente, itens, marcadores, endereços
+#    de entrega e formas de envio aninhados: ~9,7 MB medidos. Aqui vão só os campos que as
+#    telas leem, e o texto das observações fica de fora — ~1,8 MB, 81% menos.
+#
+# O que este endpoint NÃO faz: trocar a identidade de cliente, produto e vendedor. Os
+# campos de exibição continuam vindo da origem, e não das dimensões do `gold`. É de
+# propósito — `dim_vendedor.nome` é normalizado em minúsculas para agrupar
+# ("adriana oliveira"), e `dim_produto` consolida 433 descrições em 291. As duas coisas
+# são melhorias, e nenhuma delas é "migrar a régua": elas mudam o que a tela ESCREVE, não
+# o que ela CONTA. Entram numa fase própria, medindo o efeito em cada ranking.
+
+SQL_VENDAS = """
+SELECT
+    n.id,
+    n.numero,
+    n.data_emissao,
+    n.valor_nota,
+    n.valor_produtos,
+    n.nome_vendedor,
+    n.tipo,
+    (n.observacoes IS NOT NULL AND n.observacoes <> '') AS tem_observacoes,
+    CASE WHEN c.id IS NULL THEN NULL ELSE
+        json_build_object('id', c.id, 'nome', c.nome, 'cpf_cnpj', c.cpf_cnpj)
+    END AS cliente,
+    COALESCE((
+        SELECT json_agg(json_build_object(
+                   'descricao',      i.descricao,
+                   'codigo',         i.codigo,
+                   'quantidade',     i.quantidade,
+                   'valor_unitario', i.valor_unitario,
+                   'valor_total',    i.valor_total)
+               ORDER BY i.id)
+        FROM tiny.itens_nota i
+        WHERE i.id_nota = n.id
+    ), CAST('[]' AS json)) AS itens
+FROM tiny.notas_fiscais n
+LEFT JOIN tiny.clientes c ON c.id = n.id_cliente
+-- O `gold` é quem decide o que é venda. Este IN é a régua inteira deste endpoint.
+WHERE n.id IN (SELECT DISTINCT id_nota FROM gold.fato_vendas)
+  -- CAST(), e nao o operador de cast com dois-pontos: em `text()` do SQLAlchemy os
+  -- dois-pontos iniciam um bind param, entao o cast vira um parametro fantasma e a query
+  -- quebra. E o parser NAO ignora comentario: escrever o operador aqui dentro tambem
+  -- criaria o parametro. Por isso esta frase o descreve em vez de mostra-lo.
+  AND (CAST(:data_inicio AS date) IS NULL OR n.data_emissao >= CAST(:data_inicio AS date))
+  AND (CAST(:data_fim    AS date) IS NULL OR n.data_emissao <= CAST(:data_fim    AS date))
+ORDER BY n.data_emissao DESC, n.id DESC
+"""
+
+
+class ItemDaVenda(BaseModel):
+    descricao: str | None = None
+    codigo: str | None = None
+    # `Decimal`, como no schema de `/item_nota` — as três colunas são `numeric` na origem.
+    # As telas envolvem cada uma em `Number(...)` antes de somar, o que funciona com o
+    # número e com o texto; o contrato aqui segue o que a API já devolvia.
+    quantidade: Decimal | None = None
+    valor_unitario: Decimal | None = None
+    valor_total: Decimal | None = None
+
+
+class ClienteDaVenda(BaseModel):
+    id: int
+    nome: str | None = None
+    cpf_cnpj: str | None = None
+
+
+class NotaDeVenda(BaseModel):
+    id: int
+    numero: str | None = None
+    data_emissao: date | None = None
+    valor_nota: float | None = None
+    valor_produtos: float | None = None
+    nome_vendedor: str | None = None
+    tipo: str | None = None
+    # Só se HÁ observação, não o texto. O campo é livre e carrega número de série, chave
+    # de acesso e nome de quem recebeu — mandar isso em toda listagem é gastar banda para
+    # espalhar dado que quase ninguém abre. O texto vem por `/observacoes` quando o modal
+    # é aberto.
+    tem_observacoes: bool = False
+    cliente: ClienteDaVenda | None = None
+    itens: List[ItemDaVenda] = []
+
+
+@router.get("/vendas", response_model=List[NotaDeVenda])
+def vendas(
+    data_inicio: date | None = Query(None, description="Emissão a partir de (inclusive)"),
+    data_fim: date | None = Query(None, description="Emissão até (inclusive)"),
+    db: Session = Depends(get_db),
+):
+    """As notas que contam como faturamento, pela régua do `gold`.
+
+    Sem filtro de data devolve o histórico inteiro — hoje 4.330 notas, ~1,8 MB. É o que as
+    telas de Clientes, Vendas, Produtos e Vendedores precisam, porque cada uma desenha
+    gráfico sobre o conjunto todo e filtra no navegador.
+
+    ⚠️ **Não paginar antes de migrar essas agregações** (item 9.4): enquanto o gráfico for
+    desenhado a partir desta resposta, uma primeira página seria lida como se fosse o
+    total — e sem erro nenhum, que é o pior jeito de errar.
+    """
+    if data_inicio and data_fim and data_fim < data_inicio:
+        raise HTTPException(
+            status_code=422,
+            detail="`data_fim` não pode ser anterior a `data_inicio`.",
+        )
+
+    linhas = db.execute(
+        text(SQL_VENDAS), {"data_inicio": data_inicio, "data_fim": data_fim}
+    ).mappings().all()
+    return [NotaDeVenda(**dict(linha)) for linha in linhas]
+
+
+@router.get("/vendas/{id_nota}/observacoes")
+def observacoes_da_venda(id_nota: int, db: Session = Depends(get_db)):
+    """O texto das observações de uma nota, sob demanda.
+
+    Fica fora da listagem de propósito: são ~1,7 MB de campo livre que só é lido quando
+    alguém clica para abrir o modal, e o conteúdo é o mais sensível da nota — número de
+    série, chave de acesso, nome de quem recebeu.
+
+    Responde 404 para nota que não é venda pela régua do `gold`, e não o texto: quem não
+    pode listar a nota também não pode ler a observação dela por id direto.
+    """
+    linha = db.execute(
+        text(
+            """
+            SELECT n.observacoes
+            FROM tiny.notas_fiscais n
+            WHERE n.id = :id_nota
+              AND n.id IN (SELECT DISTINCT id_nota FROM gold.fato_vendas)
+            """
+        ),
+        {"id_nota": id_nota},
+    ).mappings().first()
+
+    if linha is None:
+        raise HTTPException(status_code=404, detail="Nota de venda não encontrada.")
+    return {"id": id_nota, "observacoes": linha["observacoes"]}
