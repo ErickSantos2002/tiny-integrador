@@ -384,6 +384,158 @@ def observacoes_da_venda(id_nota: int, db: Session = Depends(get_db)):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Serviços: o que a tela desenha, somado no banco (item 9.4)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# A tela de Serviços baixava as 5.004 notas para calcular KPI, evolução mensal,
+# ranking de cliente e distribuição por cidade no navegador. Mesmo desenho das
+# telas do Comercial e de Contas: aqui se filtra e se soma; o corte do top dez e
+# a escolha entre a série anual e a mensal continuam sendo da tela.
+#
+# O "tipo de serviço" são os primeiros 50 caracteres da discriminação. Não é
+# regra de negócio nem classificação: é um agrupamento aproximado que a tela
+# inventou para ter um terceiro filtro, e está reproduzido como está — mudá-lo
+# mudaria as opções do multiselect sem que ninguém tivesse pedido.
+TIPO_DO_SERVICO = "COALESCE(NULLIF(LEFT(s.\"discriminação_dos_serviços\", 50), ''), 'Não especificado')"
+
+CLIENTE_DO_SERVICO = (
+    "COALESCE(s.\"razão_social_do_tomador\", '') || ' (' "
+    "|| COALESCE(s.\"cpf_cnpj_do_tomador\", '') || ')'"
+)
+
+CIDADE_DO_SERVICO = (
+    "COALESCE(s.\"cidade_do_tomador\", '') || '/' || COALESCE(s.\"uf_do_tomador\", '')"
+)
+
+CTE_SERVICOS = f"""
+WITH servicos AS (
+    SELECT s.id,
+           s."data_da_emissão_nfs_e_dsr_e"   AS data_emissao,
+           s."razão_social_do_tomador"       AS cliente,
+           {CIDADE_DO_SERVICO}               AS cidade,
+           {TIPO_DO_SERVICO}                 AS tipo,
+           f.valor_servicos                  AS valor
+    FROM tiny.servicos s
+    -- O `gold` é quem decide o que é serviço faturado. Este join é a régua.
+    JOIN gold.fato_servicos f ON f.sk_servico = s.id
+    WHERE (CAST(:data_inicio AS date) IS NULL
+           OR s."data_da_emissão_nfs_e_dsr_e" >= CAST(:data_inicio AS date))
+      AND (CAST(:data_fim AS date) IS NULL
+           OR s."data_da_emissão_nfs_e_dsr_e" <= CAST(:data_fim AS date))
+      AND (CAST(:clientes AS text[]) IS NULL
+           OR {CLIENTE_DO_SERVICO} = ANY(CAST(:clientes AS text[])))
+      AND (CAST(:cidades AS text[]) IS NULL
+           OR {CIDADE_DO_SERVICO} = ANY(CAST(:cidades AS text[])))
+      AND (CAST(:tipos AS text[]) IS NULL
+           OR {TIPO_DO_SERVICO} = ANY(CAST(:tipos AS text[])))
+)
+"""
+
+SQL_SERVICOS_KPIS = CTE_SERVICOS + """
+SELECT COALESCE(SUM(valor), 0) AS faturamento,
+       COUNT(*)                AS notas
+FROM servicos
+"""
+
+SQL_SERVICOS_EVOLUCAO = CTE_SERVICOS + """
+SELECT EXTRACT(YEAR  FROM data_emissao)::int AS ano,
+       EXTRACT(MONTH FROM data_emissao)::int AS mes,
+       COALESCE(SUM(valor), 0)               AS total,
+       COUNT(*)                              AS notas
+FROM servicos
+GROUP BY 1, 2
+ORDER BY 1, 2
+"""
+
+SQL_SERVICOS_POR_CLIENTE = CTE_SERVICOS + """
+SELECT COALESCE(cliente, '')  AS nome,
+       COALESCE(SUM(valor), 0) AS valor,
+       COUNT(*)                AS notas
+FROM servicos
+GROUP BY 1
+ORDER BY valor DESC, nome
+"""
+
+SQL_SERVICOS_POR_CIDADE = CTE_SERVICOS + """
+SELECT cidade                  AS nome,
+       COALESCE(SUM(valor), 0) AS valor,
+       COUNT(*)                AS notas
+FROM servicos
+GROUP BY 1
+ORDER BY valor DESC, nome
+"""
+
+# As opções saem do universo inteiro, sem recorte: uma lista que encolhe com o
+# filtro esconde a opção que a pessoa ia marcar em seguida.
+SQL_SERVICOS_OPCOES = f"""
+SELECT DISTINCT
+       {CLIENTE_DO_SERVICO} AS cliente,
+       {CIDADE_DO_SERVICO}  AS cidade,
+       {TIPO_DO_SERVICO}    AS tipo
+FROM tiny.servicos s
+JOIN gold.fato_servicos f ON f.sk_servico = s.id
+"""
+
+
+class FiltrosDeServicos:
+    """Os quatro filtros da tela de Serviços, lidos da query string."""
+
+    def __init__(
+        self,
+        data_inicio: date | None = Query(None, description="Emissão a partir de (inclusive)"),
+        data_fim: date | None = Query(None, description="Emissão até (inclusive)"),
+        cliente: List[str] | None = Query(None, description="'Razão social (documento)' (repetível)"),
+        cidade: List[str] | None = Query(None, description="'Cidade/UF' (repetível)"),
+        tipo: List[str] | None = Query(None, description="Tipo de serviço (repetível)"),
+    ):
+        if data_inicio and data_fim and data_fim < data_inicio:
+            raise HTTPException(
+                status_code=422,
+                detail="`data_fim` não pode ser anterior a `data_inicio`.",
+            )
+        self.params = {
+            "data_inicio": data_inicio,
+            "data_fim": data_fim,
+            "clientes": cliente or None,
+            "cidades": cidade or None,
+            "tipos": tipo or None,
+        }
+
+
+class KpisDeServicos(BaseModel):
+    faturamento: float
+    notas: int
+    ticket_medio: float
+
+
+class MesDeServicos(BaseModel):
+    ano: int
+    mes: int
+    total: float
+    notas: int
+
+
+class LinhaDeServicos(BaseModel):
+    nome: str
+    valor: float
+    notas: int
+
+
+class OpcoesDeServicos(BaseModel):
+    clientes: List[str]
+    cidades: List[str]
+    tipos: List[str]
+
+
+class ResumoDeServicos(BaseModel):
+    kpis: KpisDeServicos
+    evolucao_mensal: List[MesDeServicos]
+    por_cliente: List[LinhaDeServicos]
+    por_cidade: List[LinhaDeServicos]
+    opcoes: OpcoesDeServicos
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # As notas de serviço que compõem o faturamento
 # ─────────────────────────────────────────────────────────────────────────────
 #
@@ -440,28 +592,167 @@ class NotaDeServico(BaseModel):
     valor_total_recebido: Decimal | None = None
 
 
-@router.get("/servicos", response_model=List[NotaDeServico])
+# A busca da tabela de Serviços: número da NFS-e, razão social, documento (com e
+# sem máscara), cidade e a discriminação. Os mesmos seis campos que o navegador
+# procurava.
+FILTRO_BUSCA_SERVICOS = """
+  AND (CAST(:busca AS text) IS NULL OR (
+        CAST(s."nº_da_nota_fiscal_eletrônica" AS text) ILIKE '%' || CAST(:busca AS text) || '%'
+     OR s."razão_social_do_tomador" ILIKE '%' || CAST(:busca AS text) || '%'
+     OR s."cpf_cnpj_do_tomador" ILIKE '%' || CAST(:busca AS text) || '%'
+     OR (regexp_replace(CAST(:busca AS text), '[^0-9]', '', 'g') <> ''
+         AND regexp_replace(COALESCE(s."cpf_cnpj_do_tomador", ''), '[^0-9]', '', 'g')
+             ILIKE '%' || regexp_replace(CAST(:busca AS text), '[^0-9]', '', 'g') || '%')
+     OR s."cidade_do_tomador" ILIKE '%' || CAST(:busca AS text) || '%'
+     OR s."discriminação_dos_serviços" ILIKE '%' || CAST(:busca AS text) || '%'
+  ))
+"""
+
+ORDENACOES_DE_SERVICOS = {
+    "numero": 's."nº_da_nota_fiscal_eletrônica" {d} NULLS LAST, s.id DESC',
+    "data_emissao": 's."data_da_emissão_nfs_e_dsr_e" {d}, s.id {d}',
+    "cliente": 'lower(s."razão_social_do_tomador") {d} NULLS LAST, s.id DESC',
+    "cidade": 'lower(s."cidade_do_tomador") {d} NULLS LAST, s.id DESC',
+    "valor": "f.valor_servicos {d} NULLS LAST, s.id DESC",
+}
+
+
+class PaginaDeServicos(BaseModel):
+    """Uma página da tabela, com o tamanho e o valor do recorte inteiro junto."""
+
+    itens: List[NotaDeServico]
+    total: int
+    valor_total: float
+    limite: int
+    offset: int
+
+
+@router.get("/servicos", response_model=PaginaDeServicos)
 def servicos(
-    data_inicio: date | None = Query(None, description="Emissão a partir de (inclusive)"),
-    data_fim: date | None = Query(None, description="Emissão até (inclusive)"),
+    filtros: FiltrosDeServicos = Depends(),
+    busca: str | None = Query(
+        None, max_length=120, description="Procura em número, tomador, documento, cidade e discriminação"
+    ),
+    ordenar_por: str = Query("data_emissao"),
+    direcao: str = Query("desc", pattern="^(asc|desc)$"),
+    limite: int = Query(LIMITE_PADRAO, ge=1, le=LIMITE_MAXIMO),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
-    """As notas de serviço que contam como faturamento, pela régua do `gold`.
+    """As notas de serviço que contam como faturamento — uma página por vez.
 
-    Os valores chegam como número, e não como o texto que a origem grava — é a diferença
-    que importa aqui, porque a conversão desse texto tem duas convenções e já mora
-    duplicada no navegador.
+    Os valores chegam como número, e não como o texto que a origem grava: é a
+    diferença que importa aqui, porque a conversão desse texto tem duas
+    convenções e já morou duplicada no navegador.
 
-    Não é paginado pelo mesmo motivo de `/faturamento/vendas`: a tela de Serviços desenha
-    KPI, evolução mensal e dois rankings sobre o conjunto todo (item 9.4).
+    Paginada desde 2026-09-09. Só pôde ser agora: enquanto os KPIs, a evolução e
+    os dois rankings saíam desta lista, uma primeira página teria sido lida como
+    o total. Eles saíram para `/faturamento/servicos/resumo` (item 9.4).
     """
-    if data_inicio and data_fim and data_fim < data_inicio:
+    if ordenar_por not in ORDENACOES_DE_SERVICOS:
         raise HTTPException(
             status_code=422,
-            detail="`data_fim` não pode ser anterior a `data_inicio`.",
+            detail=f"`ordenar_por` deve ser um de: {', '.join(ORDENACOES_DE_SERVICOS)}.",
         )
 
+    params = {**filtros.params, "busca": (busca or "").strip() or None}
+
+    contagem = db.execute(
+        text(
+            CTE_SERVICOS.replace("f.valor_servicos                  AS valor",
+                                 "f.valor_servicos                  AS valor")
+            + "SELECT COUNT(*) AS total, COALESCE(SUM(valor), 0) AS valor FROM servicos"
+        ),
+        params,
+    ).mappings().first()
+
+    # A contagem acima já respeita os filtros; a busca entra na consulta das
+    # linhas, que é onde as colunas de texto estão disponíveis.
+    total_com_busca = db.execute(
+        text(
+            """
+            SELECT COUNT(*) AS total, COALESCE(SUM(f.valor_servicos), 0) AS valor
+            FROM tiny.servicos s
+            JOIN gold.fato_servicos f ON f.sk_servico = s.id
+            WHERE (CAST(:data_inicio AS date) IS NULL
+                   OR s."data_da_emissão_nfs_e_dsr_e" >= CAST(:data_inicio AS date))
+              AND (CAST(:data_fim AS date) IS NULL
+                   OR s."data_da_emissão_nfs_e_dsr_e" <= CAST(:data_fim AS date))
+              AND (CAST(:clientes AS text[]) IS NULL
+                   OR """ + CLIENTE_DO_SERVICO + """ = ANY(CAST(:clientes AS text[])))
+              AND (CAST(:cidades AS text[]) IS NULL
+                   OR """ + CIDADE_DO_SERVICO + """ = ANY(CAST(:cidades AS text[])))
+              AND (CAST(:tipos AS text[]) IS NULL
+                   OR """ + TIPO_DO_SERVICO + """ = ANY(CAST(:tipos AS text[])))
+            """
+            + FILTRO_BUSCA_SERVICOS
+        ),
+        params,
+    ).mappings().first()
+
+    ordem = ORDENACOES_DE_SERVICOS[ordenar_por].format(d=direcao.upper())
     linhas = db.execute(
-        text(SQL_SERVICOS), {"data_inicio": data_inicio, "data_fim": data_fim}
+        text(
+            SQL_SERVICOS.replace(
+                'ORDER BY s."data_da_emissão_nfs_e_dsr_e" DESC, s.id DESC',
+                FILTRO_BUSCA_SERVICOS + f"ORDER BY {ordem}\nLIMIT :limite OFFSET :offset",
+            )
+        ),
+        {**params, "limite": limite, "offset": offset},
     ).mappings().all()
-    return [NotaDeServico(**dict(linha)) for linha in linhas]
+
+    return PaginaDeServicos(
+        itens=[NotaDeServico(**dict(linha)) for linha in linhas],
+        total=int(total_com_busca["total"] or 0),
+        valor_total=float(total_com_busca["valor"] or 0),
+        limite=limite,
+        offset=offset,
+    )
+
+
+
+@router.get("/servicos/resumo", response_model=ResumoDeServicos)
+def resumo_de_servicos(
+    filtros: FiltrosDeServicos = Depends(), db: Session = Depends(get_db)
+):
+    """Tudo que a tela de Serviços desenha, para um mesmo recorte.
+
+    Os valores vêm de `gold.fato_servicos`, já como número. Na origem os três
+    são TEXTO, em duas convenções — e o navegador carregava a conversão, que é
+    exatamente o tipo de cópia que diverge da outra sem ninguém notar.
+    """
+    p = filtros.params
+
+    linha = db.execute(text(SQL_SERVICOS_KPIS), p).mappings().first()
+    notas = int(linha["notas"] or 0)
+    faturamento = float(linha["faturamento"] or 0)
+
+    opcoes = list(db.execute(text(SQL_SERVICOS_OPCOES)).mappings())
+
+    def distintos(campo: str) -> List[str]:
+        return sorted({l[campo] for l in opcoes if (l[campo] or "").strip()})
+
+    return ResumoDeServicos(
+        kpis=KpisDeServicos(
+            faturamento=faturamento,
+            notas=notas,
+            ticket_medio=(faturamento / notas) if notas else 0.0,
+        ),
+        evolucao_mensal=[
+            MesDeServicos(**dict(l))
+            for l in db.execute(text(SQL_SERVICOS_EVOLUCAO), p).mappings()
+        ],
+        por_cliente=[
+            LinhaDeServicos(**dict(l))
+            for l in db.execute(text(SQL_SERVICOS_POR_CLIENTE), p).mappings()
+        ],
+        por_cidade=[
+            LinhaDeServicos(**dict(l))
+            for l in db.execute(text(SQL_SERVICOS_POR_CIDADE), p).mappings()
+        ],
+        opcoes=OpcoesDeServicos(
+            clientes=distintos("cliente"),
+            cidades=distintos("cidade"),
+            tipos=distintos("tipo"),
+        ),
+    )
