@@ -358,9 +358,20 @@ CAMPOS_DA_BUSCA = ["cliente_nome", "categoria", "nro_documento", "historico"]
 
 
 def _clausula_de_busca() -> str:
+    """A cláusula OR que procura o termo nos quatro campos.
+
+    ⚠️ Montada por concatenação, e não por f-string aninhada. A imagem roda
+    Python **3.11**, onde backslash dentro da expressão de uma f-string é erro
+    de SINTAXE — o módulo nem importa, e o gunicorn morre no boot. No 3.11 o
+    aspas-dentro-de-aspas também não vale. Isto passou despercebido porque a
+    `.venv` local é 3.14, onde a PEP 701 permite as duas coisas: o
+    `import app.main` daqui não reproduz o erro de lá.
+    """
+    vazio = "''"
     alvo = _dobrado("CAST(:busca AS text)")
     casa = [
-        f"{_dobrado(f'COALESCE({campo}, \'\')')} LIKE '%' || {alvo} || '%'"
+        _dobrado("COALESCE(" + campo + ", " + vazio + ")")
+        + " LIKE '%' || " + alvo + " || '%'"
         for campo in CAMPOS_DA_BUSCA
     ]
     return " AND (CAST(:busca AS text) IS NULL OR (" + " OR ".join(casa) + "))"
