@@ -90,6 +90,8 @@ app.include_router(endpoints.centro_custo)
 app.include_router(endpoints.operacao)
 # Faturamento lido do gold — a regra unica, ja aplicada (Fase 9).
 app.include_router(endpoints.faturamento)
+# Os recortes agregados das quatro telas do Comercial, somados no banco (item 9.4).
+app.include_router(endpoints.comercial)
 
 # Health check
 @app.get("/")

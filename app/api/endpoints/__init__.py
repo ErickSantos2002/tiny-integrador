@@ -12,3 +12,4 @@ from .contas_receber import router as contas_receber
 from .centro_custo import router as centro_custo
 from .operacao import router as operacao
 from .faturamento import router as faturamento
+from .comercial import router as comercial

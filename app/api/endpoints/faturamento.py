@@ -34,6 +34,8 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.filtros_comerciais import CTE_NOTAS, FiltrosComerciais
+from app.core.paginacao import LIMITE_MAXIMO, LIMITE_PADRAO
 from app.models.database import SessionLocal
 
 router = APIRouter(prefix="/faturamento", tags=["Faturamento"])
@@ -171,16 +173,57 @@ def faturamento_mensal(
 # são melhorias, e nenhuma delas é "migrar a régua": elas mudam o que a tela ESCREVE, não
 # o que ela CONTA. Entram numa fase própria, medindo o efeito em cada ranking.
 
-SQL_VENDAS = """
+# A busca da tabela, do jeito que a tela sempre fez: nome do cliente, documento com e sem
+# pontuação, vendedor, descrição de item e o valor escrito. O documento entra duas vezes
+# porque quem digita só números espera achar o CNPJ formatado — e quem copia o CNPJ
+# formatado espera achar também.
+#
+# ⚠️ `CAST()`, e nunca o operador de cast com dois-pontos: em `text()` do SQLAlchemy os
+# dois-pontos iniciam um bind param, então o cast vira um parâmetro fantasma obrigatório e
+# a query quebra. E o parser NÃO ignora comentário — escrever o operador aqui dentro
+# criaria o parâmetro do mesmo jeito. Por isso esta frase o descreve em vez de mostrá-lo.
+FILTRO_BUSCA = """
+  AND (CAST(:busca AS text) IS NULL OR (
+        c.nome ILIKE '%' || CAST(:busca AS text) || '%'
+     OR c.cpf_cnpj ILIKE '%' || CAST(:busca AS text) || '%'
+     OR regexp_replace(COALESCE(c.cpf_cnpj, ''), '[^0-9]', '', 'g')
+        ILIKE '%' || regexp_replace(CAST(:busca AS text), '[^0-9]', '', 'g') || '%'
+        AND regexp_replace(CAST(:busca AS text), '[^0-9]', '', 'g') <> ''
+     OR n.nome_vendedor ILIKE '%' || CAST(:busca AS text) || '%'
+     OR CAST(n.valor_nota AS text) ILIKE '%' || CAST(:busca AS text) || '%'
+     OR EXISTS (SELECT 1 FROM tiny.itens_nota i2
+                WHERE i2.id_nota = n.id
+                  AND i2.descricao ILIKE '%' || CAST(:busca AS text) || '%')
+  ))
+"""
+
+# Ordenação por lista fechada, e não pelo texto que chega na query string: o `ORDER BY` é
+# a única parte desta consulta que não pode ser bind param, então o que entra ali sai
+# daqui — de um dicionário — e nunca do pedido.
+ORDENACOES = {
+    "data_emissao": "n.data_emissao {d}, n.id {d}",
+    "cliente": "c.nome {d} NULLS LAST, n.id DESC",
+    "valor": "n.valor_nota {d} NULLS LAST, n.id DESC",
+    "vendedor": "n.nome_vendedor {d} NULLS LAST, n.id DESC",
+    "numero": "nf.numero {d} NULLS LAST, n.id DESC",
+    # A tela de Vendedores ordena por tipo (Outbound/Inbound/ReCompra), que é
+    # curadoria local — a única coluna desta listagem que não veio do Tiny.
+    "tipo": "nf.tipo {d} NULLS LAST, n.id DESC",
+    # Vendedores mede a MERCADORIA, não o total da nota: ordenar pelos dois pela
+    # mesma chave faria a tabela discordar do KPI que está logo acima dela.
+    "valor_produtos": "n.valor_produtos {d} NULLS LAST, n.id DESC",
+}
+
+SQL_VENDAS = CTE_NOTAS + """
 SELECT
     n.id,
-    n.numero,
+    nf.numero,
     n.data_emissao,
     n.valor_nota,
     n.valor_produtos,
     n.nome_vendedor,
-    n.tipo,
-    (n.observacoes IS NOT NULL AND n.observacoes <> '') AS tem_observacoes,
+    nf.tipo,
+    (nf.observacoes IS NOT NULL AND nf.observacoes <> '') AS tem_observacoes,
     CASE WHEN c.id IS NULL THEN NULL ELSE
         json_build_object('id', c.id, 'nome', c.nome, 'cpf_cnpj', c.cpf_cnpj)
     END AS cliente,
@@ -195,18 +238,21 @@ SELECT
         FROM tiny.itens_nota i
         WHERE i.id_nota = n.id
     ), CAST('[]' AS json)) AS itens
-FROM tiny.notas_fiscais n
+FROM notas n
+JOIN tiny.notas_fiscais nf ON nf.id = n.id
 LEFT JOIN tiny.clientes c ON c.id = n.id_cliente
--- O `gold` é quem decide o que é venda. Este IN é a régua inteira deste endpoint.
-WHERE n.id IN (SELECT DISTINCT id_nota FROM gold.fato_vendas)
-  -- CAST(), e nao o operador de cast com dois-pontos: em `text()` do SQLAlchemy os
-  -- dois-pontos iniciam um bind param, entao o cast vira um parametro fantasma e a query
-  -- quebra. E o parser NAO ignora comentario: escrever o operador aqui dentro tambem
-  -- criaria o parametro. Por isso esta frase o descreve em vez de mostra-lo.
-  AND (CAST(:data_inicio AS date) IS NULL OR n.data_emissao >= CAST(:data_inicio AS date))
-  AND (CAST(:data_fim    AS date) IS NULL OR n.data_emissao <= CAST(:data_fim    AS date))
-ORDER BY n.data_emissao DESC, n.id DESC
+WHERE true
+""" + FILTRO_BUSCA + """
+ORDER BY {ordem}
+LIMIT :limite OFFSET :offset
 """
+
+SQL_VENDAS_TOTAL = CTE_NOTAS + """
+SELECT COUNT(*) AS total, COALESCE(SUM(n.valor_nota), 0) AS valor
+FROM notas n
+LEFT JOIN tiny.clientes c ON c.id = n.id_cliente
+WHERE true
+""" + FILTRO_BUSCA
 
 
 class ItemDaVenda(BaseModel):
@@ -243,32 +289,70 @@ class NotaDeVenda(BaseModel):
     itens: List[ItemDaVenda] = []
 
 
-@router.get("/vendas", response_model=List[NotaDeVenda])
+class PaginaDeVendas(BaseModel):
+    """Uma página da tabela, com o tamanho e o valor do recorte inteiro junto.
+
+    `total` e `valor_total` são do FILTRO, não da página — é o que impede a tela de somar
+    o que recebeu e chamar aquilo de faturamento. Enquanto a resposta era a lista inteira
+    isso era a mesma coisa; a partir da paginação, deixa de ser, e a diferença precisa
+    estar escrita no corpo em vez de subentendida.
+    """
+
+    itens: List[NotaDeVenda]
+    total: int
+    valor_total: float
+    limite: int
+    offset: int
+
+
+@router.get("/vendas", response_model=PaginaDeVendas)
 def vendas(
-    data_inicio: date | None = Query(None, description="Emissão a partir de (inclusive)"),
-    data_fim: date | None = Query(None, description="Emissão até (inclusive)"),
+    filtros: FiltrosComerciais = Depends(),
+    busca: str | None = Query(
+        None,
+        max_length=120,
+        description="Procura em cliente, documento, vendedor, produto e valor",
+    ),
+    ordenar_por: str = Query("data_emissao", description=f"Um de: {', '.join(ORDENACOES)}"),
+    direcao: str = Query("desc", pattern="^(asc|desc)$"),
+    limite: int = Query(LIMITE_PADRAO, ge=1, le=LIMITE_MAXIMO),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
-    """As notas que contam como faturamento, pela régua do `gold`.
+    """As notas que contam como faturamento, pela régua do `gold` — uma página por vez.
 
-    Sem filtro de data devolve o histórico inteiro — hoje 4.330 notas, ~1,8 MB. É o que as
-    telas de Clientes, Vendas, Produtos e Vendedores precisam, porque cada uma desenha
-    gráfico sobre o conjunto todo e filtra no navegador.
+    Filtra, busca, ordena e pagina no banco. Os gráficos que antes eram desenhados a partir
+    desta lista saíram para `/faturamento/resumo` (item 9.4), e é isso que torna a
+    paginação segura: enquanto a tela somava o que recebia, uma primeira página teria sido
+    lida como o total — sem erro nenhum, que é o pior jeito de errar.
 
-    ⚠️ **Não paginar antes de migrar essas agregações** (item 9.4): enquanto o gráfico for
-    desenhado a partir desta resposta, uma primeira página seria lida como se fosse o
-    total — e sem erro nenhum, que é o pior jeito de errar.
+    O recorte é o mesmo de `/faturamento/resumo` para os mesmos parâmetros — a cláusula é
+    literalmente a mesma, importada de um módulo só.
     """
-    if data_inicio and data_fim and data_fim < data_inicio:
+    if ordenar_por not in ORDENACOES:
         raise HTTPException(
             status_code=422,
-            detail="`data_fim` não pode ser anterior a `data_inicio`.",
+            detail=f"`ordenar_por` deve ser um de: {', '.join(ORDENACOES)}.",
         )
 
+    termo = (busca or "").strip() or None
+    params = {**filtros.params, "busca": termo}
+
+    contagem = db.execute(text(SQL_VENDAS_TOTAL), params).mappings().first()
+
+    ordem = ORDENACOES[ordenar_por].format(d=direcao.upper())
     linhas = db.execute(
-        text(SQL_VENDAS), {"data_inicio": data_inicio, "data_fim": data_fim}
+        text(SQL_VENDAS.replace("{ordem}", ordem)),
+        {**params, "limite": limite, "offset": offset},
     ).mappings().all()
-    return [NotaDeVenda(**dict(linha)) for linha in linhas]
+
+    return PaginaDeVendas(
+        itens=[NotaDeVenda(**dict(linha)) for linha in linhas],
+        total=int(contagem["total"] or 0),
+        valor_total=float(contagem["valor"] or 0),
+        limite=limite,
+        offset=offset,
+    )
 
 
 @router.get("/vendas/{id_nota}/observacoes")
