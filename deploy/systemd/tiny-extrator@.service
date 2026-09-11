@@ -5,7 +5,11 @@
 #   cp deploy/systemd/tiny-extrator-*.timer  /etc/systemd/system/
 #   cp deploy/rodar-job.sh /opt/datacore-jobs/
 #   systemctl daemon-reload
-#   systemctl enable --now tiny-extrator-notas.timer tiny-extrator-contas.timer tiny-extrator-estoque.timer
+#   systemctl enable --now tiny-extrator-notas.timer tiny-extrator-contas.timer tiny-extrator-estoque.timer \
+#       tiny-extrator-nfse.timer
+#
+# O template serve para qualquer job de `app/jobs/`, não só os do Tiny: a instância
+# `importar_nfse` (NFS-e do ADN) usa o mesmo caminho desde 2026-09-11.
 [Unit]
 Description=Extrator do Tiny — %i
 After=docker.service

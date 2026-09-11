@@ -143,6 +143,8 @@ Acompanhar: `journalctl -u backfill-<nome>.service -f`
 
 ⚠️ **Cheque a janela dos timers antes** (UTC): notas 04:00 e 15:00 · contas 10:00 ·
 estoque 16:00. Duas cargas juntas estouram o limite de 20 chamadas/min da API.
+(A importação de NFS-e, 04:30, não entra nessa conta: ela fala com o ADN nacional, não
+com o Tiny.)
 
 ⚠️ **`--limite 0` NÃO limita** — `if args.limite:` trata zero como ausente, e o job
 processa tudo. Para testar, use `--limite 1`.

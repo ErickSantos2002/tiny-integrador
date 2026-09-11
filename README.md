@@ -222,6 +222,7 @@ docker run -d --rm --name extrator-teste -e POSTGRES_PASSWORD=teste \
     -e POSTGRES_DB=testdb -p 55433:5432 postgres:17
 python testar_extrator_notas.py
 python testar_extrator_contas_estoque.py
+python testar_job_importar_nfse.py
 docker rm -f extrator-teste
 ```
 
@@ -239,12 +240,20 @@ VPS, em `deploy/`:
 | `tiny-extrator-notas` | 04:00 e 15:00 | `Puxar_Notas` |
 | `tiny-extrator-contas` | 10:00 | `Puxar_Contas_Pagar` + `Puxar_Contas_Receber` |
 | `tiny-extrator-estoque` | 16:00 | `Atualizar estoque` |
+| `tiny-extrator-nfse` | 04:30 | nada — antes dependia de chamar `POST /notas_servico/importar` à mão |
+
+O `tiny-extrator-nfse` roda `python -m app.jobs.importar_nfse`: as NFS-e emitidas nos
+últimos 30 dias, do ADN nacional (não do Tiny). Até 2026-09-11 a importação só existia
+como endpoint e ninguém a chamava — 31 notas de 04/09 a 10/09 estavam fora do banco.
+A janela larga custa o mesmo que a estreita: o ADN só se consulta por NSU, então o
+serviço varre tudo e filtra a data depois. Às 04:30 para cair antes do dbt das 05:00.
 
 ```bash
 cp deploy/rodar-job.sh /opt/datacore-jobs/
 cp deploy/systemd/* /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now tiny-extrator-notas.timer tiny-extrator-contas.timer tiny-extrator-estoque.timer
+systemctl enable --now tiny-extrator-notas.timer tiny-extrator-contas.timer tiny-extrator-estoque.timer \
+    tiny-extrator-nfse.timer
 journalctl -u 'tiny-extrator@*' -f     # acompanhar
 ```
 

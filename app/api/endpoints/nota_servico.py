@@ -7,16 +7,11 @@ from app.models.nota_servico import NotaServico as NotaServicoModel
 from app.schemas.nota_servico import NotaServico
 from fastapi.responses import JSONResponse
 from app.services.nfse_recife_nacional import NFSeRecifeNacionalService
+from app.services.nfse_importacao import gravar_notas
 from app.core.config import settings
 import traceback
 
 router = APIRouter(prefix="/notas_servico", tags=["Notas de Serviço"])
-
-# Campos que são curadoria NOSSA, não dado da origem: a importação nunca os
-# sobrescreve numa atualização. Hoje só `cancelada`, que é marcada à mão porque o
-# leiaute nacional entrega o cancelamento como Evento separado, ainda não tratado.
-# Sem esta proteção, cada reimportação da nota devolvia a marcação para o padrão.
-CAMPOS_DE_CURADORIA_LOCAL = {"cancelada"}
 
 # Dependency
 def get_db():
@@ -139,62 +134,10 @@ def importar_nfse_recife(
                 }
             )
 
-        # Processa cada nota
-        importadas = 0
-        atualizadas = 0
-        erros = []
-
-        for nota_data in notas_encontradas:
-            try:
-                # Identidade da nota = CHAVE DE ACESSO (50 dígitos), nunca o número.
-                #
-                # O número da NFS-e NÃO é único: em 18/06/2026 a emissão migrou para o
-                # Emissor Nacional e a numeração REINICIOU (a série do Recife estava em
-                # 5.723; a nacional recomeçou em 725). Casar por número fazia a nota nova
-                # nº 749 encontrar a nota de 2019 nº 749 e sobrescrevê-la, em silêncio.
-                # Impacto medido em 23/08/2026: ~280 notas de 2018-2021 já foram perdidas
-                # dessa forma (faixa 725-1058), e outras 4.405 estavam na fila.
-                # A chave de acesso (doc["ChaveAcesso"]) é única por documento fiscal.
-                chave = nota_data.get('codigo_verificacao')
-                if not chave:
-                    # Sem chave não há identidade confiável. Não inserir às cegas nem
-                    # cair de volta no número: pular e reportar.
-                    erros.append({
-                        "nfse": nota_data.get('numero_nfse'),
-                        "erro": "NFS-e sem chave de acesso; ignorada para não arriscar "
-                                "sobrescrever outra nota"
-                    })
-                    continue
-
-                nota_existente = db.query(NotaServicoModel).filter(
-                    NotaServicoModel.codigo_verificacao == chave
-                ).first()
-
-                if nota_existente:
-                    # Atualiza nota existente, preservando os campos de curadoria nossa
-                    for key, value in nota_data.items():
-                        if key in CAMPOS_DE_CURADORIA_LOCAL:
-                            continue
-                        if hasattr(nota_existente, key):
-                            setattr(nota_existente, key, value)
-                    atualizadas += 1
-                else:
-                    # Cria nova nota. Os campos de curadoria começam no padrão do
-                    # modelo (cancelada=False) e só mudam por ação nossa.
-                    nova_nota = NotaServicoModel(**{
-                        k: v for k, v in nota_data.items()
-                        if k not in CAMPOS_DE_CURADORIA_LOCAL
-                    })
-                    db.add(nova_nota)
-                    importadas += 1
-
-            except Exception as e:
-                erros.append({
-                    "nfse": nota_data.get('numero_nfse'),
-                    "erro": str(e)
-                })
-                print(f"Erro ao processar NFSe {nota_data.get('numero_nfse')}: {e}")
-                traceback.print_exc()
+        # A gravação (casar pela chave de acesso, preservar a curadoria) mora em
+        # `app/services/nfse_importacao.py`, compartilhada com o job diário
+        # `app.jobs.importar_nfse` — uma regra só, dois caminhos de entrada.
+        resultado = gravar_notas(db, notas_encontradas)
 
         # Commit das alterações
         db.commit()
@@ -209,9 +152,9 @@ def importar_nfse_recife(
                     "data_final": str(data_final)
                 },
                 "total_encontradas": len(notas_encontradas),
-                "total_importadas": importadas,
-                "total_atualizadas": atualizadas,
-                "erros": erros if erros else None
+                "total_importadas": resultado.importadas,
+                "total_atualizadas": resultado.atualizadas,
+                "erros": resultado.erros if resultado.erros else None
             }
         )
 

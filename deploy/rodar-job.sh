@@ -9,7 +9,7 @@
 set -euo pipefail
 
 PREFIXO="${CONTAINER_PREFIXO:-erick_datacore-api}"
-JOB="${1:?uso: rodar-job.sh <extrair_notas|extrair_contas|extrair_estoque> [argumentos]}"
+JOB="${1:?uso: rodar-job.sh <extrair_notas|extrair_contas|extrair_estoque|importar_nfse> [argumentos]}"
 shift
 
 CONTAINER="$(docker ps --format '{{.Names}}' | grep -m1 "^${PREFIXO}" || true)"
